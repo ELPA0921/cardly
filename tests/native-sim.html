@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>카들리 앱 모드 시뮬레이션</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script>
+    // 안드로이드 앱(Capacitor) 환경을 흉내 냅니다. 실제 네이티브 기능 대신 기록만 남깁니다.
+    window.__calls = [];
+    const fake = name => new Proxy({}, {
+      get: (_, method) => async (args) => {
+        window.__calls.push(name + '.' + String(method));
+        if (method === 'findContact') return { matches: [] };
+        if (method === 'recognizeText') return { text: '', lines: [] };
+        if (method === 'scanDocument') return { images: [], cancelled: true };
+        return {};
+      },
+    });
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+      Plugins: { CardlyNative: fake('CardlyNative'), Share: fake('Share'), Filesystem: fake('Filesystem') },
+      registerPlugin: name => fake(name),
+    };
+  </script>
+</head>
+<body>
+  <div id="app" class="app"></div>
+  <input type="file" id="file-camera" accept="image/*" capture="environment" hidden>
+  <input type="file" id="file-gallery" accept="image/*" hidden>
+  <input type="file" id="file-import" accept=".json,application/json" hidden>
+  <div id="overlay-root"></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <script type="module" src="../js/app.js"></script>
+</body>
+</html>

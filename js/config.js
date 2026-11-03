@@ -1,15 +1,15 @@
-// ??湲곕낯 ?ㅼ젙
-// 吏?몃뱾?먭쾶 諛고룷???뚮뒗 ?ш린??媛믪쓣 ?ｌ뼱?먮㈃ 媛곸옄 ?ㅼ젙???꾩슂媛 ?놁뒿?덈떎.
-// (?깆쓽 '?ㅼ젙' ?붾㈃?먯꽌 ?낅젰??媛믪씠 ?덉쑝硫?洹?媛믪씠 ?곗꽑?⑸땲??)
+// 앱 기본 설정
+// 지인들에게 배포할 때는 여기에 값을 넣어두면 각자 설정할 필요가 없습니다.
+// (앱의 '설정' 화면에서 입력한 값이 있으면 그 값이 우선합니다.)
 export const DEFAULT_CONFIG = {
-  // Google Cloud Console > API 諛??쒕퉬??> ?ъ슜???몄쬆 ?뺣낫 > OAuth 2.0 ?대씪?댁뼵??ID (???좏뵆由ъ??댁뀡)
+  // Google Cloud Console > API 및 서비스 > 사용자 인증 정보 > OAuth 2.0 클라이언트 ID (웹 애플리케이션)
   googleClientId: '92671224460-vqg64i1rqmbs7btm06vcbo2hdgkslt6e.apps.googleusercontent.com',
-  // ?좏깮: Google Cloud Vision API ??(?뺥솗???믪? OCR). 鍮꾩썙?먮㈃ 湲곌린 ??臾대즺 OCR(Tesseract)???ъ슜?⑸땲??
-  // 怨듦컻 ??μ냼???ㅺ? ?щ씪媛吏 ?딅룄濡??ш린??鍮꾩썙 ?먭퀬, ??'?ㅼ젙'?먯꽌 ?낅젰?섏꽭??
-  // ?ㅼ젙?먯꽌 ?낅젰???ㅻ뒗 ??Google Drive ?곗씠?곗뿉 ?④퍡 ??λ릺???ㅻⅨ 湲곌린?먮룄 ?먮룞?쇰줈 ?곸슜?⑸땲??
+  // 선택: Google Cloud Vision API 키 (정확도 높은 OCR). 비워두면 기기 내 무료 OCR(Tesseract)을 사용합니다.
+  // 공개 저장소에 키가 올라가지 않도록 여기는 비워 두고, 앱 '설정'에서 입력하세요.
+  // 설정에서 입력한 키는 내 Google Drive 데이터에 함께 저장되어 다른 기기에도 자동으로 적용됩니다.
   visionApiKey: '',
-  // Google Drive??留뚮뱾?댁쭏 ?대뜑 ?대쫫
-  driveFolderName: '紐낇븿愿由?,
+  // Google Drive에 만들어질 폴더 이름
+  driveFolderName: '명함관리',
 };
 
-export const APP_VERSION = '0.5.0';
+export const APP_VERSION = '0.5.1';
