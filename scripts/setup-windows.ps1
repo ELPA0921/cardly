@@ -60,8 +60,13 @@ if (-not $SkipTools) {
   Step 'Installing Android platform 36, build-tools 35, platform-tools (accepts Android SDK license)'
   $android = Join-Path $tools 'bin\android.exe'
   $yes = (1..20 | ForEach-Object { 'y' }) -join "`n"
+  # android.exe prints progress to stderr; with 2>&1 PowerShell 5.1 turns that into errors, so don't stop on them
+  $ErrorActionPreference = 'Continue'
   $yes | & $android --sdk=$sdk sdk install 'platform-tools' 'platforms/android-36' 'build-tools/35.0.0' 2>&1 |
+    ForEach-Object { "$_" } |
     Where-Object { $_ -notmatch 'Unzipping|Downloading|UseAllWindowsProcessorGroups' } | Out-Host
+  $ErrorActionPreference = 'Stop'
+  if ($LASTEXITCODE -ne 0) { throw "Android SDK install failed (exit $LASTEXITCODE)" }
 }
 
 Step 'Setting JAVA_HOME / ANDROID_HOME'
@@ -82,8 +87,12 @@ $props = Join-Path $cardlyDir 'signing.properties'
 $jks = Join-Path $cardlyDir 'cardly-release.jks'
 if ((Test-Path $props) -and (Test-Path $jks)) {
   # signing.properties holds CARDLY_* lines. Fix the keystore path for this PC's user folder.
+  # Gradle reads .properties as ISO-8859-1, so non-ASCII chars (e.g. a Korean user name) must be \uXXXX escaped.
+  $storePath = -join ($jks.Replace('\', '/').ToCharArray() | ForEach-Object {
+    if ([int]$_ -gt 127) { '\u{0:x4}' -f [int]$_ } else { [string]$_ }
+  })
   $lines = Get-Content $props | Where-Object { $_ -match '^CARDLY_' } | ForEach-Object {
-    if ($_ -like 'CARDLY_STORE_FILE=*') { 'CARDLY_STORE_FILE=' + $jks.Replace('\', '/') } else { $_ }
+    if ($_ -like 'CARDLY_STORE_FILE=*') { 'CARDLY_STORE_FILE=' + $storePath } else { $_ }
   }
   $gp = Join-Path $env:USERPROFILE '.gradle\gradle.properties'
   New-Item -ItemType Directory -Force (Split-Path $gp) | Out-Null
