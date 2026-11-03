@@ -1,6 +1,7 @@
 // 공유 텍스트, 클립보드, vCard(.vcf) 만들기
 import { SHARE_KEYS, fieldLabel } from './fields.js';
 import { isNative, shareNative } from './native.js';
+import { contactDisplayName } from './contactRules.js';
 
 const SHARE_LABELS = { company: '회사명' };
 
@@ -57,9 +58,11 @@ export function splitName(name) {
 
 const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
 
-export function buildVCard(card) {
-  const { family, given } = splitName(card.name);
-  const lines = ['BEGIN:VCARD', 'VERSION:3.0', `N:${esc(family)};${esc(given)};;;`, `FN:${esc(card.name || card.company || '이름 없음')}`];
+// displayName: 주소록 이름 규칙으로 만든 이름 (예: "창조이엔지 홍길동 부장"). 이름과 다르면 성/이름으로 나누지 않고 통째로 넣음
+export function buildVCard(card, displayName = card.name) {
+  const shown = displayName || card.name || card.company || '이름 없음';
+  const { family, given } = shown === card.name ? splitName(card.name) : { family: '', given: shown };
+  const lines = ['BEGIN:VCARD', 'VERSION:3.0', `N:${esc(family)};${esc(given)};;;`, `FN:${esc(shown)}`];
   if (card.company || card.department) lines.push(`ORG:${esc(card.company)}${card.department ? ';' + esc(card.department) : ''}`);
   if (card.title) lines.push(`TITLE:${esc(card.title)}`);
   if (card.mobile) lines.push(`TEL;TYPE=CELL:${card.mobile}`);
@@ -114,7 +117,7 @@ export async function sharePhotos(card, blobs) {
 // 반환: 'shared' | 'downloaded' | 'cancel'
 export async function shareVCard(cards, label) {
   const filename = vcardFilename(cards, label);
-  const file = new File([cards.map(buildVCard).join('')], filename, { type: 'text/vcard' });
+  const file = new File([cards.map(c => buildVCard(c, contactDisplayName(c))).join('')], filename, { type: 'text/vcard' });
   if (isNative) return shareNative({ files: [{ name: filename, blob: file }] });
   if (navigator.canShare?.({ files: [file] })) {
     try {

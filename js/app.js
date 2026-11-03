@@ -5,7 +5,9 @@ import * as idb from './idb.js';
 import { recognize, normalizeImage } from './ocr.js';
 import { detectCard, warpCard } from './scan.js';
 import { isNative, Native, App, base64ToBlob } from './native.js';
-import { parseCard, chosung, cleanPhone } from './parser.js';
+import * as rules from './contactRules.js';
+import { contactDisplayName, getUsePhoto } from './contactRules.js';
+import { parseCard, chosung, formatPhone, hyphenatePhone } from './parser.js';
 import { buildShareText, copyText, shareCardText, shareVCard, sharePhotos, downloadBlob } from './share.js';
 import { FIELDS, FIELD_KEYS, fieldLabel } from './fields.js';
 import { icon } from './icons.js';
@@ -818,7 +820,7 @@ async function assignLine(i) {
   let value = text;
   if (PHONE_KEYS.includes(key)) {
     const m = text.match(/[\d+(][\d\s().-]{6,}\d/);
-    value = cleanPhone(m ? m[0] : text);
+    value = formatPhone(m ? m[0] : text);
   } else if (key === 'email') {
     const m = text.replace(/\s*@\s*/g, '@').match(/[^\s@]+@[^\s@]+/);
     if (m) value = m[0];
@@ -867,7 +869,7 @@ async function saveDraft() {
   const d = draft;
   if (!d) return;
   document.querySelectorAll('[data-field]').forEach(el => (d.fields[el.dataset.field] = el.value.trim()));
-  PHONE_KEYS.forEach(k => (d.fields[k] = cleanPhone(d.fields[k])));
+  PHONE_KEYS.forEach(k => (d.fields[k] = formatPhone(d.fields[k])));
   if (!d.isMine) d.favorite = document.getElementById('draft-fav')?.checked || false;
   const f = d.fields;
   if (!FIELD_KEYS.some(k => f[k]) && !d.photos.length) return toast('내용을 입력하거나 사진을 추가해 주세요.', 'error');
@@ -1063,9 +1065,10 @@ async function saveToContacts(id) {
       if (matches.length) {
         const m = matches[0];
         const more = matches.length > 1 ? `\n(같은 번호 연락처가 ${matches.length}개 있습니다. 첫 번째 연락처를 덮어씁니다.)` : '';
+        const photoNote = getUsePhoto() && store.photosOf(c).length ? ' 연락처 사진도 명함 대표 사진으로 바뀝니다.' : '';
         const choice = await dialog({
           title: '주소록에 이미 있는 번호예요',
-          message: `${m.name || '(이름 없음)'} · ${m.phone}${more}\n\n덮어쓰면 이름·회사·직책·이메일·주소가 명함 내용으로 바뀌고, 다른 전화번호는 그대로 남습니다.`,
+          message: `${m.name || '(이름 없음)'} · ${m.phone}${more}\n\n덮어쓰면 "${contactDisplayName(c)}"(으)로 저장되고 회사·직책·이메일·주소가 명함 내용으로 바뀝니다.${photoNote} 다른 전화번호는 그대로 남습니다.`,
           buttons: [
             { label: '덮어쓰기', value: 'overwrite', style: 'primary' },
             { label: '새 연락처로 저장', value: 'new' },
@@ -1078,10 +1081,40 @@ async function saveToContacts(id) {
     }
     const fields = {};
     FIELD_KEYS.forEach(k => (fields[k] = c[k] || ''));
-    await Native.saveContact({ ...fields, contactId });
-    toast(contactId ? '주소록의 연락처를 덮어썼습니다.' : '주소록에 저장했습니다.');
+    const displayName = contactDisplayName(c);
+    const photoBase64 = getUsePhoto() ? await contactPhotoBase64(c) : null;
+    await Native.saveContact({ ...fields, displayName, contactId, ...(photoBase64 ? { photoBase64 } : {}) });
+    toast(`"${displayName}"(으)로 ${contactId ? '주소록 연락처를 덮어썼습니다.' : '주소록에 저장했습니다.'}`);
   } catch (e) {
     toast(e.message || '주소록에 저장하지 못했습니다.', 'error');
+  }
+}
+
+// 연락처 사진: 명함 대표 사진을 정사각형(여백은 흰색)으로 맞춰 잘리지 않게 합니다.
+async function contactPhotoBase64(card) {
+  const photo = store.photosOf(card)[store.mainPhotoIndex(card)];
+  const blob = photo && (await sync.loadPhoto(photo).catch(() => null));
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = url;
+    });
+    const size = 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    const k = Math.min(size / img.naturalWidth, size / img.naturalHeight);
+    const w = img.naturalWidth * k, h = img.naturalHeight * k;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    return canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -1260,14 +1293,30 @@ function driveStatusHtml() {
     ${isNative ? '' : '<p class="small-note">웹 버전은 보안상 약 1시간마다 로그인 확인이 필요합니다. 계속 로그인된 상태로 쓰려면 안드로이드 앱을 이용하세요.</p>'}`;
 }
 
+// ---------- 설정 (탭: 계정 / 주소록 / 인식 / 데이터) ----------
+const SETTINGS_TABS = [['account', '계정'], ['contacts', '주소록'], ['ocr', '인식'], ['data', '데이터']];
+
 function renderSettings() {
+  let tab = route().id || 'account';
+  if (!SETTINGS_TABS.some(([k]) => k === tab)) tab = 'account';
   const s = store.getSettings();
+  const body = { account: settingsAccount, contacts: settingsContacts, ocr: settingsOcr, data: settingsData }[tab](s);
   $app.innerHTML = `
     <header class="topbar">
       <button class="icon-btn" data-action="back" aria-label="뒤로">${icon('back')}</button>
       <h1>설정</h1>
     </header>
+    <nav class="settings-tabs">
+      ${SETTINGS_TABS.map(([k, label]) => `<button class="seg ${k === tab ? 'on' : ''}" data-action="settings-tab" data-id="${k}">${label}</button>`).join('')}
+    </nav>
     <main class="page">
+      ${body}
+      <p class="meta">카들리 (Cardly) v${APP_VERSION}${isNative ? ' · 앱' : ''}</p>
+    </main>`;
+}
+
+function settingsAccount(s) {
+  return `
       <h2 class="section-title">Google 계정</h2>
       <section class="panel"><div class="panel-body" id="drive-status">${driveStatusHtml()}</div></section>
 
@@ -1277,6 +1326,68 @@ function renderSettings() {
         <button class="btn block" data-action="nav" data-to="#/me">${icon('contact')}${store.getMyCard() ? '내 명함 보기' : '내 명함 등록'}</button>
       </div></section>
 
+      ${isNative ? '' : `<h2 class="section-title">고급 설정</h2>
+      <section class="panel">
+        <div class="panel-body">
+          <label class="field"><span>Google OAuth 클라이언트 ID</span><input id="client-id" value="${esc(s.googleClientId)}" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off"></label>
+          <button class="btn block" data-action="save-advanced">저장</button>
+        </div>
+        <details class="help">
+          <summary>클라이언트 ID 만드는 방법</summary>
+          <ol>
+            <li><a href="https://console.cloud.google.com/" target="_blank" rel="noopener"><u>Google Cloud Console</u></a>에서 프로젝트를 만듭니다.</li>
+            <li>'API 및 서비스 → 라이브러리'에서 <b>Google Drive API</b>를 사용 설정합니다.</li>
+            <li>'OAuth 동의 화면'을 외부(External)로 만들고, 테스트 사용자에 본인과 지인 Gmail을 추가합니다.</li>
+            <li>'사용자 인증 정보 → OAuth 클라이언트 ID → 웹 애플리케이션'을 만들고, 승인된 JavaScript 원본에 <code>${esc(location.origin)}</code> 를 추가합니다.</li>
+            <li>만들어진 클라이언트 ID를 위 칸에 붙여 넣습니다.</li>
+          </ol>
+        </details>
+      </section>`}`;
+}
+
+// 주소록 이름 규칙 미리보기용: 내 명함이 있으면 내 명함, 없으면 예시
+const SAMPLE_CARD = { company: '(주)창조이엔지', department: '영업팀', name: '홍길동', title: '부장' };
+
+function settingsContacts() {
+  const parts = rules.getNameFormat();
+  const sample = store.getMyCard() || SAMPLE_CARD;
+  const unused = rules.NAME_PARTS.filter(p => !parts.includes(p.key));
+  const same = (a, b) => a.length === b.length && a.every((k, i) => k === b[i]);
+  return `
+      <h2 class="section-title">주소록 이름 규칙</h2>
+      <section class="panel"><div class="panel-body">
+        <p>명함을 휴대폰 주소록(또는 연락처 파일)에 저장할 때 이름을 이렇게 만듭니다.</p>
+        <div class="name-preview"><small>미리보기</small><strong>${esc(rules.contactDisplayName(sample, parts))}</strong></div>
+        <div class="fmt-list">
+          ${parts.map((k, i) => `
+            <div class="fmt-row">
+              <span class="fmt-no">${i + 1}</span>
+              <span class="fmt-label">${rules.partLabel(k)}</span>
+              <button class="icon-btn" data-action="fmt-move" data-i="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="앞으로">${icon('chevronUp')}</button>
+              <button class="icon-btn" data-action="fmt-move" data-i="${i}" data-dir="1" ${i === parts.length - 1 ? 'disabled' : ''} aria-label="뒤로">${icon('chevronDown')}</button>
+              <button class="icon-btn" data-action="fmt-remove" data-i="${i}" ${parts.length === 1 ? 'disabled' : ''} aria-label="빼기">${icon('x')}</button>
+            </div>`).join('')}
+        </div>
+        ${unused.length ? `<div class="chips wrap">${unused.map(p => `<button class="chip dashed" data-action="fmt-add" data-id="${p.key}">${icon('plus')}${p.label}</button>`).join('')}</div>` : ''}
+        <p class="small-note" style="margin-top:14px">빠른 선택</p>
+        <div class="chips wrap">
+          ${rules.NAME_PRESETS.map((p, i) => `<button class="chip ${same(p, parts) ? 'on' : ''}" data-action="fmt-preset" data-i="${i}">${p.map(rules.partLabel).join(' ')}</button>`).join('')}
+        </div>
+      </div>
+      <label class="radio-row"><input type="checkbox" id="strip-corp" ${rules.getStripCorp() ? 'checked' : ''}>
+        <span>회사명에서 (주)·주식회사 빼기<small>예: "(주)창조이엔지" → "창조이엔지"</small></span></label>
+      </section>
+
+      <h2 class="section-title">주소록 사진</h2>
+      <section class="panel">
+        <label class="radio-row"><input type="checkbox" id="contact-photo" ${rules.getUsePhoto() ? 'checked' : ''} ${isNative ? '' : 'disabled'}>
+          <span>명함 대표 사진을 연락처 사진으로 넣기<small>${isNative ? '새로 저장할 때와 기존 연락처를 덮어쓸 때 모두 적용됩니다.' : '안드로이드 앱에서 주소록에 저장할 때 적용됩니다.'}</small></span></label>
+      </section>
+      <p class="small-note" style="padding:0 4px">주소록 설정은 내 Google 계정에 저장되어 다른 기기에도 똑같이 적용됩니다.</p>`;
+}
+
+function settingsOcr(s) {
+  return `
       ${isNative ? '' : `<h2 class="section-title">명함 테두리 맞추기</h2>
       <section class="panel">
         <label class="radio-row"><input type="radio" name="crop" value="auto" ${s.cropScreen !== 'off' ? 'checked' : ''}>
@@ -1305,8 +1416,11 @@ function renderSettings() {
         <div class="panel-body" style="padding-top:4px">
           <label class="field"><span>Vision API 키</span><input id="vision-key" type="password" value="${esc(store.getSettings().visionApiKey)}" placeholder="AIza…" autocomplete="off"></label>
         </div>
-      </section>
+      </section>`;
+}
 
+function settingsData() {
+  return `
       <h2 class="section-title">데이터</h2>
       <section class="panel"><div class="panel-body">
         <p>전체 ${store.cards().length}개 명함 · ${store.groups().length}개 그룹</p>
@@ -1314,28 +1428,8 @@ function renderSettings() {
         <button class="btn block" data-action="export-json">${icon('download')}백업 파일 내보내기 (JSON)</button>
         <button class="btn block" data-action="import-json">${icon('upload')}백업 파일 불러오기</button>
         ${isLoggedIn() ? '' : `<button class="btn danger block" data-action="reset-local">${icon('trash')}이 기기의 데이터 지우기</button>`}
-        <p class="small-note">연락처 파일(.vcf)을 갤럭시에서 열면 주소록에 한꺼번에 저장할 수 있습니다.</p>
-      </div></section>
-
-      ${isNative ? '' : `<h2 class="section-title">고급 설정</h2>
-      <section class="panel">
-        <div class="panel-body">
-          <label class="field"><span>Google OAuth 클라이언트 ID</span><input id="client-id" value="${esc(s.googleClientId)}" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off"></label>
-          <button class="btn block" data-action="save-advanced">저장</button>
-        </div>
-        <details class="help">
-          <summary>클라이언트 ID 만드는 방법</summary>
-          <ol>
-            <li><a href="https://console.cloud.google.com/" target="_blank" rel="noopener"><u>Google Cloud Console</u></a>에서 프로젝트를 만듭니다.</li>
-            <li>'API 및 서비스 → 라이브러리'에서 <b>Google Drive API</b>를 사용 설정합니다.</li>
-            <li>'OAuth 동의 화면'을 외부(External)로 만들고, 테스트 사용자에 본인과 지인 Gmail을 추가합니다.</li>
-            <li>'사용자 인증 정보 → OAuth 클라이언트 ID → 웹 애플리케이션'을 만들고, 승인된 JavaScript 원본에 <code>${esc(location.origin)}</code> 를 추가합니다.</li>
-            <li>만들어진 클라이언트 ID를 위 칸에 붙여 넣습니다.</li>
-          </ol>
-        </details>
-      </section>`}
-      <p class="meta">카들리 (Cardly) v${APP_VERSION}${isNative ? ' · 앱' : ''}</p>
-    </main>`;
+        <p class="small-note">연락처 파일(.vcf)을 갤럭시에서 열면 주소록에 한꺼번에 저장할 수 있습니다. 이름은 [주소록] 탭의 규칙대로 들어갑니다.</p>
+      </div></section>`;
 }
 
 async function exportJson() {
@@ -1486,6 +1580,24 @@ document.addEventListener('click', async e => {
     case 'group-menu': return groupMenu(id);
 
     // 설정
+    case 'settings-tab': return go(`#/settings/${id}`, { replace: true });
+    case 'fmt-move':
+    case 'fmt-remove':
+    case 'fmt-add':
+    case 'fmt-preset': {
+      let parts = [...rules.getNameFormat()];
+      const i = +el.dataset.i;
+      if (action === 'fmt-move') {
+        const j = i + +el.dataset.dir;
+        [parts[i], parts[j]] = [parts[j], parts[i]];
+      } else if (action === 'fmt-remove') parts.splice(i, 1);
+      else if (action === 'fmt-add') parts.push(id);
+      else parts = [...rules.NAME_PRESETS[i]];
+      rules.setNameFormat(parts);
+      const y = window.scrollY;
+      renderSettings();
+      return window.scrollTo(0, y);
+    }
     case 'login': return loginGoogle();
     case 'sync-now': return sync.syncNow();
     case 'logout': return logout();
@@ -1523,9 +1635,9 @@ document.addEventListener('input', e => {
     return renderListItems();
   }
   if (t.dataset.field && draft) {
-    // 전화번호 칸은 숫자만 (맨 앞 + 는 국제번호용으로 허용)
+    // 전화번호 칸: 숫자만 받고 하이픈은 규칙에 맞춰 자동으로
     if (PHONE_KEYS.includes(t.dataset.field)) {
-      const v = t.value.replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
+      const v = hyphenatePhone(t.value);
       if (v !== t.value) t.value = v;
     }
     draft.fields[t.dataset.field] = t.value;
@@ -1539,6 +1651,14 @@ document.addEventListener('change', e => {
     ui.sort = t.value;
     store.setUiPrefs({ sort: t.value });
     renderListItems();
+  } else if (t.id === 'strip-corp') {
+    rules.setStripCorp(t.checked);
+    const y = window.scrollY;
+    renderSettings();
+    window.scrollTo(0, y);
+  } else if (t.id === 'contact-photo') {
+    rules.setUsePhoto(t.checked);
+    toast(t.checked ? '주소록에 저장할 때 명함 사진을 넣습니다.' : '주소록에 저장할 때 사진은 넣지 않습니다.');
   } else if (t.name === 'crop') {
     store.setSettings({ cropScreen: t.value });
   } else if (t.name === 'ocr') {

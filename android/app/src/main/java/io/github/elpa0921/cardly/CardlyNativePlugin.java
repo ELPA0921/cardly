@@ -306,6 +306,13 @@ public class CardlyNativePlugin extends Plugin {
                         .withSelection(ContactsContract.Data.RAW_CONTACT_ID + "=? AND " + ContactsContract.Data.MIMETYPE + "=?", new String[] { raw, mime })
                         .build());
                 }
+                // 사진을 넣는 경우에만 기존 연락처 사진을 교체
+                if (call.getString("photoBase64") != null) {
+                    ops.add(ContentProviderOperation.newDelete(ContactsContract.Data.CONTENT_URI)
+                        .withSelection(ContactsContract.Data.RAW_CONTACT_ID + "=? AND " + ContactsContract.Data.MIMETYPE + "=?",
+                            new String[] { raw, CommonDataKinds.Photo.CONTENT_ITEM_TYPE })
+                        .build());
+                }
                 ops.add(ContentProviderOperation.newDelete(ContactsContract.Data.CONTENT_URI)
                     .withSelection(ContactsContract.Data.RAW_CONTACT_ID + "=? AND " + ContactsContract.Data.MIMETYPE + "=? AND "
                             + CommonDataKinds.Phone.TYPE + " IN (?,?,?)",
@@ -344,10 +351,20 @@ public class CardlyNativePlugin extends Plugin {
         String company = call.getString("company", "");
         String department = call.getString("department", "");
         String title = call.getString("title", "");
+        // 주소록에 보일 이름 (사용자가 정한 규칙, 예: "창조이엔지 홍길동 부장")
+        String displayName = call.getString("displayName", "");
+        if (displayName.isEmpty()) displayName = name.isEmpty() ? company : name;
 
-        if (!name.isEmpty() || !company.isEmpty()) {
+        if (!displayName.isEmpty()) {
+            // 이름 전체를 '이름' 칸에 넣어 주소록이 성/이름으로 잘못 나누지 않게 합니다.
             ops.add(row(rawId, backRef, CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
-                .withValue(CommonDataKinds.StructuredName.DISPLAY_NAME, name.isEmpty() ? company : name).build());
+                .withValue(CommonDataKinds.StructuredName.DISPLAY_NAME, displayName)
+                .withValue(CommonDataKinds.StructuredName.GIVEN_NAME, displayName).build());
+        }
+        String photo = call.getString("photoBase64");
+        if (photo != null && !photo.isEmpty()) {
+            ops.add(row(rawId, backRef, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                .withValue(CommonDataKinds.Photo.PHOTO, Base64.decode(photo, Base64.DEFAULT)).build());
         }
         if (!company.isEmpty() || !department.isEmpty() || !title.isEmpty()) {
             ops.add(row(rawId, backRef, CommonDataKinds.Organization.CONTENT_ITEM_TYPE)

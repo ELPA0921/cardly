@@ -2,7 +2,7 @@
 import { DEFAULT_CONFIG } from './config.js';
 import { FIELD_KEYS } from './fields.js';
 import { isNative } from './native.js';
-import { cleanPhone } from './parser.js';
+import { formatPhone } from './parser.js';
 
 const DATA_KEY = 'bc.data.v1';
 const SETTINGS_KEY = 'bc.settings.v1';
@@ -28,8 +28,8 @@ function normalize(d) {
   const out = { version: 1, cards: [], groups: [], prefs: {}, updatedAt: 0 };
   if (d && typeof d === 'object') {
     out.cards = Array.isArray(d.cards) ? d.cards.filter(c => c && c.id) : [];
-    // 예전에 하이픈/괄호를 넣어 저장한 번호도 숫자만 남김 (읽을 때마다 정리 → Drive에도 다음 저장 때 반영)
-    for (const c of out.cards) for (const k of ['mobile', 'phone', 'fax']) if (c[k] && /\D/.test(c[k])) c[k] = cleanPhone(c[k]);
+    // 전화번호를 하이픈 규칙에 맞게 정리 (예전 형식도 읽을 때마다 맞춤 → Drive에도 다음 저장 때 반영)
+    for (const c of out.cards) for (const k of ['mobile', 'phone', 'fax']) if (c[k] && formatPhone(c[k]) !== c[k]) c[k] = formatPhone(c[k]);
     out.groups = Array.isArray(d.groups) ? d.groups.filter(g => g && g.id) : [];
     out.prefs = d.prefs && typeof d.prefs === 'object' ? d.prefs : {};
     out.updatedAt = d.updatedAt || 0;

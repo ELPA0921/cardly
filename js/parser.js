@@ -49,14 +49,32 @@ const HANGUL_RE = /[가-힣]/;
 const onlyHangul = s => /^[가-힣]+$/.test(s);
 const digits = s => s.replace(/\D/g, '');
 
-// 전화번호는 하이픈·괄호·공백 없이 숫자만 저장합니다. (+82 국가번호는 0으로 바꿈)
-export function cleanPhone(raw) {
+// 전화번호의 숫자만 (+82 국가번호는 0으로 바꿈)
+export function phoneDigits(raw) {
   const s = String(raw || '').trim();
   let d = digits(s);
   if ((s.startsWith('+82') && d.length >= 9) || (d.startsWith('82') && d.length >= 11)) d = '0' + d.slice(2).replace(/^0/, '');
   return d;
 }
-export const formatPhone = cleanPhone;
+
+// 숫자만으로 국내 전화번호 하이픈 규칙에 맞춰 표시 (입력 중인 번호도 단계별로 맞춤)
+//  02-123-4567 / 02-1234-5678, 031-123-4567, 010-1234-5678, 070-1234-5678, 0505-123-4567, 1588-1234
+export function hyphenatePhone(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (/^1[5-9]/.test(d)) return d.length <= 4 ? d : `${d.slice(0, 4)}-${d.slice(4, 8)}${d.slice(8)}`;
+  if (!d.startsWith('0')) return d;
+  const areaLen = d.startsWith('02') ? 2 : /^050/.test(d) ? 4 : 3;
+  const area = d.slice(0, areaLen);
+  const rest = d.slice(areaLen);
+  if (!rest) return area;
+  if (rest.length <= 4) return `${area}-${rest}`;
+  if (rest.length === 7) return `${area}-${rest.slice(0, 3)}-${rest.slice(3)}`;
+  return `${area}-${rest.slice(0, 4)}-${rest.slice(4)}`;
+}
+
+// 저장용: 특수문자는 버리고 하이픈 규칙으로 다시 맞춤
+export const formatPhone = raw => hyphenatePhone(phoneDigits(raw));
 
 function phoneKind(before) {
   const b = before.slice(-16);
