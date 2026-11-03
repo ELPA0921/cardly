@@ -1161,7 +1161,7 @@ function renderSettings() {
         <label class="radio-row"><input type="radio" name="ocr" value="tesseract" ${s.ocrEngine !== 'vision' ? 'checked' : ''}>
           <span>기본 (무료, 기기 안에서 처리)<small>처음 한 번 한국어 인식 데이터(약 10MB)를 내려받습니다. 정확도는 보통입니다.</small></span></label>
         <label class="radio-row"><input type="radio" name="ocr" value="vision" ${s.ocrEngine === 'vision' ? 'checked' : ''}>
-          <span>Google Cloud Vision (정확도 높음)<small>월 1,000건까지 무료. Google Cloud에서 API 키 발급이 필요합니다.</small></span></label>
+          <span>Google Cloud Vision (정확도 높음)<small>월 1,000건까지 무료. 키를 한 번 입력하면 내 Google Drive에 저장되어 다른 기기에도 자동 적용됩니다.</small></span></label>
         <div class="panel-body" style="padding-top:4px">
           <label class="field"><span>Vision API 키</span><input id="vision-key" type="password" value="${esc(store.getSettings().visionApiKey)}" placeholder="AIza…" autocomplete="off"></label>
         </div>
@@ -1408,8 +1408,9 @@ document.addEventListener('change', e => {
     store.setSettings({ ocrEngine: t.value });
     if (t.value === 'vision' && !store.getSettings().visionApiKey) toast('Vision API 키를 입력해 주세요.');
   } else if (t.id === 'vision-key') {
-    store.setSettings({ visionApiKey: t.value.trim() });
-    toast('API 키를 저장했습니다.');
+    store.setSettings({ visionApiKey: '' });
+    store.setPref('visionApiKey', t.value.trim());
+    toast(t.value.trim() ? 'API 키를 저장했습니다. Drive에 연결된 다른 기기에도 적용됩니다.' : 'API 키를 지웠습니다.');
   } else if (t.id === 'draft-fav' && draft) {
     draft.favorite = t.checked;
   }

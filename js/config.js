@@ -5,9 +5,11 @@ export const DEFAULT_CONFIG = {
   // Google Cloud Console > API 및 서비스 > 사용자 인증 정보 > OAuth 2.0 클라이언트 ID (웹 애플리케이션)
   googleClientId: '92671224460-vqg64i1rqmbs7btm06vcbo2hdgkslt6e.apps.googleusercontent.com',
   // 선택: Google Cloud Vision API 키 (정확도 높은 OCR). 비워두면 기기 내 무료 OCR(Tesseract)을 사용합니다.
+  // 공개 저장소에 키가 올라가지 않도록 여기는 비워 두고, 앱 '설정'에서 입력하세요.
+  // 설정에서 입력한 키는 내 Google Drive 데이터에 함께 저장되어 다른 기기에도 자동으로 적용됩니다.
   visionApiKey: '',
   // Google Drive에 만들어질 폴더 이름
   driveFolderName: '명함관리',
 };
 
-export const APP_VERSION = '0.3.0';
+export const APP_VERSION = '0.4.0';

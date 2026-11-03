@@ -23,10 +23,11 @@ function readJson(key, fallback) {
 const writeJson = (key, value) => localStorage.setItem(key, JSON.stringify(value));
 
 function normalize(d) {
-  const out = { version: 1, cards: [], groups: [], updatedAt: 0 };
+  const out = { version: 1, cards: [], groups: [], prefs: {}, updatedAt: 0 };
   if (d && typeof d === 'object') {
     out.cards = Array.isArray(d.cards) ? d.cards.filter(c => c && c.id) : [];
     out.groups = Array.isArray(d.groups) ? d.groups.filter(g => g && g.id) : [];
+    out.prefs = d.prefs && typeof d.prefs === 'object' ? d.prefs : {};
     out.updatedAt = d.updatedAt || 0;
   }
   return out;
@@ -166,6 +167,13 @@ export function merge(remote, source = 'sync') {
   };
   data.cards = mergeList(data.cards, r.cards);
   data.groups = mergeList(data.groups, r.groups);
+  for (const [k, v] of Object.entries(r.prefs)) {
+    const cur = data.prefs[k];
+    if (!cur || (v?.updatedAt || 0) > (cur.updatedAt || 0)) {
+      data.prefs[k] = v;
+      changed = true;
+    }
+  }
   if (changed) commit(source);
   return changed;
 }
@@ -177,10 +185,17 @@ export function resetAll() {
   commit();
 }
 
+// ---------- 계정 공통 설정 (Drive 데이터에 함께 저장되어 내 모든 기기에 적용) ----------
+export const getPref = key => data.prefs[key]?.value ?? '';
+export function setPref(key, value) {
+  data.prefs[key] = { value, updatedAt: Date.now() };
+  commit();
+}
+
 // ---------- 설정 ----------
 export function getSettings() {
   const s = readJson(SETTINGS_KEY, {});
-  const visionApiKey = s.visionApiKey || DEFAULT_CONFIG.visionApiKey;
+  const visionApiKey = getPref('visionApiKey') || s.visionApiKey || DEFAULT_CONFIG.visionApiKey;
   return {
     ...s,
     // Vision 키가 있으면 기본으로 Vision 사용 (설정에서 직접 고른 값이 우선)
