@@ -253,7 +253,7 @@ function renderList() {
 
   $app.innerHTML = `
     <header class="topbar">
-      <div class="brand">${icon('contact')}<span>명함첩</span></div>
+      <div class="brand">${icon('contact')}<span>카들리</span></div>
       <div class="topbar-actions">
         ${syncBadge()}
         <button class="icon-btn" data-action="nav" data-to="#/groups" aria-label="그룹 관리">${icon('users')}</button>
@@ -937,19 +937,19 @@ function renderSettings() {
           </ol>
         </details>
       </section>
-      <p class="meta">명함첩 v${APP_VERSION}</p>
+      <p class="meta">카들리 (Cardly) v${APP_VERSION}</p>
     </main>`;
 }
 
 async function exportJson() {
   const blob = new Blob([JSON.stringify(store.snapshot(), null, 2)], { type: 'application/json' });
-  downloadBlob(blob, `명함첩_백업_${new Date().toISOString().slice(0, 10)}.json`);
+  downloadBlob(blob, `카들리_백업_${new Date().toISOString().slice(0, 10)}.json`);
 }
 
 async function importJson(file) {
   try {
     const data = JSON.parse(await file.text());
-    if (!Array.isArray(data.cards)) throw new Error('명함첩 백업 파일이 아닙니다.');
+    if (!Array.isArray(data.cards)) throw new Error('카들리 백업 파일이 아닙니다.');
     store.merge(data, 'local');
     toast(`백업을 불러왔습니다. (명함 ${data.cards.filter(c => !c.deleted).length}개)`);
     render();
@@ -1080,7 +1080,7 @@ document.addEventListener('click', async e => {
     case 'export-vcard': {
       const list = store.cards();
       if (!list.length) return toast('내보낼 명함이 없습니다.');
-      return shareVCard(list, `명함첩_전체_${list.length}명`);
+      return shareVCard(list, `카들리_전체_${list.length}명`);
     }
     case 'export-json': return exportJson();
     case 'import-json': return document.getElementById('file-import').click();

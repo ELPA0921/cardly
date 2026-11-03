@@ -1,6 +1,6 @@
 {
-  "name": "명함첩",
-  "short_name": "명함첩",
+  "name": "카들리 (Cardly)",
+  "short_name": "카들리",
   "description": "명함을 촬영해 자동으로 정리하고 Google Drive에 보관합니다.",
   "lang": "ko",
   "start_url": "./",
