@@ -3,6 +3,8 @@
 명함을 촬영하면 OCR로 이름·회사·직책·연락처를 읽어 정리하고, 데이터는 **내 Google Drive**에 저장합니다.
 빌드 도구 없이 HTML/CSS/JavaScript만으로 만들어져 있어서, 나중에 그대로 안드로이드 앱(Capacitor)으로 감쌀 수 있습니다.
 
+**바로 쓰기: https://elpa0921.github.io/cardly/** (Google Drive 연결은 테스트 사용자로 등록된 계정만 가능)
+
 ## 기능
 
 | 기능 | 내용 |
