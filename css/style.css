@@ -1,42 +1,69 @@
+/* 카들리 브랜드: 로고의 블루 → 민트 그라데이션, 네이비 글자 */
 :root {
-  --bg: #f4f5f8;
+  --bg: #f5f8fc;
   --surface: #ffffff;
-  --surface-2: #eff1f5;
-  --text: #15181e;
-  --text-2: #565d6b;
-  --text-3: #8b919c;
-  --border: #e2e5eb;
-  --primary: #2459e0;
-  --primary-weak: #e8eefc;
+  --surface-2: #edf2f8;
+  --text: #0c1a30;
+  --text-2: #4a5970;
+  --text-3: #8592a6;
+  --border: #dde5ef;
+  --primary: #0a62e8;
+  --primary-2: #06cbc9;
+  --primary-weak: #e5effe;
   --on-primary: #ffffff;
+  --brand-grad: linear-gradient(135deg, #0a4ff0 0%, #0a86ea 52%, #08cfc6 100%);
+  --brand-ink: #0b2a5b;
   --danger: #d0393a;
   --danger-weak: #fdecec;
-  --success: #1f9d5c;
+  --success: #12936a;
   --warning: #b97b06;
-  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 6px 16px rgba(16, 24, 40, .06);
-  --shadow-lg: 0 10px 40px rgba(16, 24, 40, .18);
-  --radius: 14px;
+  --star: #f5a623;
+  --shadow: 0 1px 2px rgba(11, 42, 91, .05), 0 6px 16px rgba(11, 42, 91, .07);
+  --shadow-lg: 0 10px 40px rgba(11, 42, 91, .2);
+  --radius: 16px;
   --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   color-scheme: light;
 }
+/* 다크 모드: 설정이 '시스템'이고 휴대폰이 다크일 때, 또는 설정에서 '다크'를 골랐을 때 */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1014;
-    --surface: #171a20;
-    --surface-2: #1f232b;
-    --text: #eceef3;
-    --text-2: #a9afbb;
-    --text-3: #757c89;
-    --border: #2a2f39;
-    --primary: #5b8cff;
-    --primary-weak: #1b2745;
-    --on-primary: #ffffff;
+  :root:not([data-theme="light"]) {
+    --bg: #0a1120;
+    --surface: #121b2d;
+    --surface-2: #1a2539;
+    --text: #e9eff8;
+    --text-2: #a7b4c8;
+    --text-3: #6e7c93;
+    --border: #233149;
+    --primary: #3b8cff;
+    --primary-2: #22d6cf;
+    --primary-weak: #132a4f;
+    --brand-ink: #ffffff;
     --danger: #ff6b6b;
     --danger-weak: #3a1d1f;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
-    --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
+    --success: #34c48d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .35);
+    --shadow-lg: 0 10px 40px rgba(0, 0, 0, .55);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0a1120;
+  --surface: #121b2d;
+  --surface-2: #1a2539;
+  --text: #e9eff8;
+  --text-2: #a7b4c8;
+  --text-3: #6e7c93;
+  --border: #233149;
+  --primary: #3b8cff;
+  --primary-2: #22d6cf;
+  --primary-weak: #132a4f;
+  --brand-ink: #ffffff;
+  --danger: #ff6b6b;
+  --danger-weak: #3a1d1f;
+  --success: #34c48d;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, .55);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -69,8 +96,14 @@ a { color: inherit; text-decoration: none; }
   -webkit-backdrop-filter: saturate(1.6) blur(12px);
 }
 .topbar h1 { font-size: 17px; font-weight: 700; margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.brand { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 800; letter-spacing: -.02em; flex: 1; }
-.brand .icon { width: 26px; height: 26px; color: var(--primary); }
+.brand { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
+.brand-logo { width: 32px; height: 32px; border-radius: 9px; flex: none; box-shadow: 0 2px 8px rgba(10, 98, 232, .25); }
+/* 워드마크: 로고 글자 모양(마스크)에 테마 색을 입힘 → 라이트는 네이비, 다크는 흰색 */
+.wordmark {
+  display: inline-block; height: 21px; aspect-ratio: 610 / 208; background: var(--brand-ink);
+  -webkit-mask: url(../icons/wordmark.png) center / contain no-repeat; mask: url(../icons/wordmark.png) center / contain no-repeat;
+}
+
 .topbar-actions { display: flex; align-items: center; gap: 2px; }
 .icon-btn {
   width: 40px; height: 40px; border-radius: 12px;
@@ -78,8 +111,8 @@ a { color: inherit; text-decoration: none; }
   color: var(--text-2);
 }
 .icon-btn:hover { background: var(--surface-2); }
-.icon-btn.active { color: #f5a623; }
-.icon-btn.active .icon { fill: #f5a623; }
+.icon-btn.active { color: var(--star); }
+.icon-btn.active .icon { fill: var(--star); }
 .text-btn { padding: 8px 12px; border-radius: 10px; font-weight: 600; color: var(--text-2); }
 .text-btn:hover { background: var(--surface-2); }
 
@@ -103,7 +136,7 @@ a { color: inherit; text-decoration: none; }
   transition: filter .15s, transform .05s;
 }
 .btn:active { transform: scale(.98); }
-.btn.primary { background: var(--primary); color: var(--on-primary); }
+.btn.primary { background: var(--brand-grad); color: var(--on-primary); box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 28%, transparent); }
 .btn.danger { background: var(--danger-weak); color: var(--danger); }
 .btn.ghost { background: transparent; border: 1px solid var(--border); }
 .btn.small { min-height: 34px; padding: 0 12px; font-size: 13.5px; border-radius: 10px; }
@@ -133,7 +166,7 @@ a { color: inherit; text-decoration: none; }
 }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--text-3)); }
 .chip .count { font-weight: 500; color: var(--text-3); font-size: 12.5px; }
-.chip.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+.chip.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .chip.on .count { color: inherit; opacity: .7; }
 .chip.dashed { border-style: dashed; background: transparent; }
 .chip .icon { width: 15px; height: 15px; }
@@ -160,7 +193,7 @@ a { color: inherit; text-decoration: none; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
 .ci-top strong { font-size: 16px; font-weight: 700; }
 .ci-title { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ci-star { color: #f5a623; width: 14px; height: 14px; fill: #f5a623; align-self: center; }
+.ci-star { color: var(--star); width: 14px; height: 14px; fill: var(--star); align-self: center; }
 .ci-sub, .ci-sub2 { font-size: 13.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci-sub2 { color: var(--text-3); font-size: 13px; }
 .ci-call {
@@ -182,7 +215,7 @@ mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: i
   bottom: calc(20px + env(safe-area-inset-bottom));
   display: inline-flex; align-items: center; gap: 8px;
   height: 56px; padding: 0 22px 0 18px; border-radius: 18px;
-  background: var(--primary); color: var(--on-primary);
+  background: var(--brand-grad); color: var(--on-primary);
   font-weight: 700; font-size: 15.5px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--primary) 40%, transparent);
 }
@@ -194,9 +227,10 @@ mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: i
 .my-card {
   width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
   padding: 14px; margin-bottom: 12px; border-radius: var(--radius); cursor: pointer;
-  background: linear-gradient(135deg, var(--primary-weak), var(--surface));
+  background: linear-gradient(135deg, var(--primary-weak), color-mix(in srgb, var(--primary-2) 12%, var(--surface)));
   border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
 }
+.my-card:not(.add) .avatar { background: var(--brand-grad); color: #fff; }
 .my-card.add { background: var(--surface); border-style: dashed; color: var(--text-2); }
 .my-card .grow { flex: 1; min-width: 0; }
 .my-card strong { display: block; font-size: 16px; }
@@ -219,10 +253,10 @@ mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: i
   background: var(--surface); border: 1px solid var(--border);
   font-size: 13.5px; font-weight: 600; color: var(--text-2);
 }
-.seg.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+.seg.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .seg.add { border-style: dashed; background: transparent; }
 .seg .icon { width: 15px; height: 15px; }
-.main-mark { font-size: 11.5px; color: #f5a623; font-weight: 700; }
+.main-mark { font-size: 11.5px; color: var(--star); font-weight: 700; }
 
 /* ---------- 상세 ---------- */
 .detail { padding: 0 16px; }
@@ -375,10 +409,22 @@ code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border
 /* 설정 탭 */
 .settings-tabs {
   position: sticky; top: calc(56px + env(safe-area-inset-top)); z-index: 10;
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
   padding: 4px 16px 10px; background: var(--bg);
 }
-.settings-tabs .seg { justify-content: center; height: 38px; font-size: 14px; }
+.settings-tabs .seg { justify-content: center; height: 38px; font-size: 13.5px; padding: 0 4px; }
+
+/* 화면 모드 선택 */
+.theme-option { display: flex; align-items: center; gap: 12px; }
+.theme-swatch {
+  width: 40px; height: 40px; border-radius: 12px; flex: none; border: 1px solid var(--border);
+  background: linear-gradient(135deg, #f5f8fc 50%, #0a1120 50%);
+}
+.theme-swatch.light { background: #f5f8fc; }
+.theme-swatch.dark { background: #0a1120; }
+.theme-swatch::after {
+  content: ''; display: block; width: 16px; height: 6px; margin: 17px auto 0; border-radius: 3px; background: var(--brand-grad);
+}
 
 /* 주소록 이름 규칙 */
 .name-preview {
@@ -406,8 +452,9 @@ code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center; padding: 32px 24px calc(32px + env(safe-area-inset-bottom));
 }
-.login-logo { width: 96px; height: 96px; border-radius: 24px; box-shadow: var(--shadow-lg); }
-.login h1 { font-size: 32px; font-weight: 800; letter-spacing: -.02em; margin: 20px 0 6px; }
+.login-logo { width: 112px; height: 112px; border-radius: 28px; box-shadow: 0 16px 40px rgba(10, 98, 232, .3); }
+.login .wordmark { height: 44px; margin: 26px 0 10px; }
+
 .login-sub { color: var(--text-2); margin: 0 0 36px; font-size: 16px; }
 .login .small-note { max-width: 320px; line-height: 1.6; }
 .login-error { color: var(--danger); font-size: 14px; min-height: 1.5em; margin: 12px 0 0; max-width: 320px; }

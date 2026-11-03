@@ -3,12 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#2459e0">
+  <meta name="theme-color" content="#f5f8fc">
   <meta name="apple-mobile-web-app-title" content="카들리">
   <meta name="description" content="명함을 촬영해 자동으로 정리하고 Google Drive에 보관하는 명함 관리 앱">
   <title>카들리 (Cardly)</title>
+  <script>
+    // 저장된 화면 모드(라이트/다크)를 그리기 전에 적용 — 깜빡임 방지. '시스템'이면 휴대폰 설정을 따름
+    try {
+      var t = (JSON.parse(localStorage.getItem('bc.settings.v1')) || {}).theme;
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="css/style.css">

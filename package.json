@@ -13,9 +13,11 @@
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "8.6.0",
     "@capacitor/filesystem": "^8.1.5",
-    "@capacitor/share": "^8.0.3"
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/status-bar": "^8.0.4"
   },
   "devDependencies": {
-    "@capacitor/cli": "8.6.0"
+    "@capacitor/cli": "8.6.0",
+    "sharp": "^0.35.5"
   }
 }

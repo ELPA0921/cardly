@@ -4,7 +4,7 @@ import * as drive from './drive.js';
 import * as idb from './idb.js';
 import { recognize, normalizeImage } from './ocr.js';
 import { detectCard, warpCard } from './scan.js';
-import { isNative, Native, App, base64ToBlob } from './native.js';
+import { isNative, Native, App, StatusBar, base64ToBlob } from './native.js';
 import * as rules from './contactRules.js';
 import { contactDisplayName, getUsePhoto } from './contactRules.js';
 import { parseCard, chosung, formatPhone, hyphenatePhone } from './parser.js';
@@ -291,8 +291,8 @@ const GOOGLE_G = `<svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path
 function renderLogin() {
   $app.innerHTML = `
     <main class="login">
-      <img class="login-logo" src="icons/icon.svg" alt="">
-      <h1>카들리</h1>
+      <img class="login-logo" src="icons/logo.png" alt="">
+      <h1 class="wordmark" role="img" aria-label="카들리"></h1>
       <p class="login-sub">명함을 찍으면 자동으로 정리되는<br>나만의 명함첩</p>
       <button class="btn google-btn" data-action="login">${GOOGLE_G}Google 계정으로 로그인</button>
       <p class="login-error" id="login-error"></p>
@@ -417,7 +417,7 @@ function renderList() {
 
   $app.innerHTML = `
     <header class="topbar">
-      <div class="brand">${icon('contact')}<span>카들리</span></div>
+      <div class="brand"><img class="brand-logo" src="icons/logo.png" alt=""><span class="wordmark" role="img" aria-label="카들리"></span></div>
       <div class="topbar-actions">
         ${syncBadge()}
         <button class="icon-btn" data-action="nav" data-to="#/groups" aria-label="그룹 관리">${icon('users')}</button>
@@ -1332,13 +1332,43 @@ function driveStatusHtml() {
 }
 
 // ---------- 설정 (탭: 계정 / 주소록 / 인식 / 데이터) ----------
-const SETTINGS_TABS = [['account', '계정'], ['contacts', '주소록'], ['ocr', '인식'], ['data', '데이터']];
+const SETTINGS_TABS = [['account', '계정'], ['display', '화면'], ['contacts', '주소록'], ['ocr', '인식'], ['data', '데이터']];
+
+// ---------- 화면 모드 (시스템 / 라이트 / 다크) ----------
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const THEMES = [
+  ['system', '시스템 설정 따름', '휴대폰의 라이트/다크 설정에 맞춰 자동으로 바뀝니다.'],
+  ['light', '라이트 모드', '항상 밝은 화면'],
+  ['dark', '다크 모드', '항상 어두운 화면'],
+];
+
+function applyTheme() {
+  const theme = store.getSettings().theme || 'system';
+  const root = document.documentElement;
+  if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
+  else delete root.dataset.theme;
+  const dark = theme === 'dark' || (theme !== 'light' && darkQuery.matches);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0a1120' : '#f5f8fc');
+  // 상태 표시줄 아이콘: 어두운 화면이면 밝은 아이콘
+  if (isNative) StatusBar?.setStyle({ style: dark ? 'DARK' : 'LIGHT' }).catch(() => {});
+}
+
+function settingsDisplay(s) {
+  const current = s.theme || 'system';
+  return `
+      <h2 class="section-title">화면 모드</h2>
+      <section class="panel">
+        ${THEMES.map(([value, label, desc]) => `
+          <label class="radio-row"><input type="radio" name="theme" value="${value}" ${current === value ? 'checked' : ''}>
+            <span class="theme-option"><span class="theme-swatch ${value}"></span><span>${label}<small>${desc}</small></span></span></label>`).join('')}
+      </section>`;
+}
 
 function renderSettings() {
   let tab = route().id || 'account';
   if (!SETTINGS_TABS.some(([k]) => k === tab)) tab = 'account';
   const s = store.getSettings();
-  const body = { account: settingsAccount, contacts: settingsContacts, ocr: settingsOcr, data: settingsData }[tab](s);
+  const body = { account: settingsAccount, display: settingsDisplay, contacts: settingsContacts, ocr: settingsOcr, data: settingsData }[tab](s);
   $app.innerHTML = `
     <header class="topbar">
       <button class="icon-btn" data-action="back" aria-label="뒤로">${icon('back')}</button>
@@ -1697,6 +1727,9 @@ document.addEventListener('change', e => {
   } else if (t.id === 'contact-photo') {
     rules.setUsePhoto(t.checked);
     toast(t.checked ? '주소록에 저장할 때 명함 사진을 넣습니다.' : '주소록에 저장할 때 사진은 넣지 않습니다.');
+  } else if (t.name === 'theme') {
+    store.setSettings({ theme: t.value });
+    applyTheme();
   } else if (t.name === 'crop') {
     store.setSettings({ cropScreen: t.value });
   } else if (t.name === 'ocr') {
@@ -1784,6 +1817,8 @@ async function confirmExit() {
 
 if (isNative) App.addListener('backButton', onBackButton);
 
+applyTheme();
+darkQuery.addEventListener('change', applyTheme);
 render();
 sync.refreshStatus();
 const startSettings = store.getSettings();
