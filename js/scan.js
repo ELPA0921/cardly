@@ -133,7 +133,8 @@ export async function detectCard(blob) {
     return a + p.x * q.y - q.x * p.y;
   }, 0)) / 2;
   if (area < W * H * 0.12 || area > W * H * 0.985) return fallback();
-  return { width: W, height: H, found: true, corners: quad };
+  // coverage: 사진에서 명함이 차지하는 비율 (높으면 이미 잘린 사진)
+  return { width: W, height: H, found: true, coverage: area / (W * H), corners: quad };
 }
 
 // 4점 → 4점 원근 변환 행렬 (dst 좌표 → src 좌표)

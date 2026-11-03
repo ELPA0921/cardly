@@ -138,8 +138,8 @@ function viewImage(url) {
 
 // 명함 테두리 맞추기: 자동으로 찾은 네 모서리를 보여 주고, 끌어서 조정한 뒤 반듯하게 펴서 잘라냅니다.
 // 반환: 잘라낸 Blob | 원본 Blob('자르지 않기') | null(취소)
-async function cropDialog(blob) {
-  const det = await detectCard(blob);
+async function cropDialog(blob, det = null) {
+  det ||= await detectCard(blob);
   const corners = det.corners.map(p => ({ ...p }));
   return new Promise(resolve => {
     const el = openOverlay(`
@@ -441,21 +441,24 @@ function renderListItems() {
 }
 
 // ---------- 명함 추가 / 사진 선택 ----------
+// source: 'camera' | 'gallery' | 'scanned'(갤럭시 카메라 문서 스캔으로 이미 잘라 둔 사진 → 자르기 화면 생략)
 function pickPhoto(source, target) {
-  capture = target;
-  document.getElementById(source === 'gallery' ? 'file-gallery' : 'file-camera').click();
+  capture = { ...target, scanned: source === 'scanned' };
+  document.getElementById(source === 'camera' ? 'file-camera' : 'file-gallery').click();
 }
+
+const PHOTO_SOURCES = [
+  { label: '카메라로 촬영', desc: '찍은 뒤 명함 테두리를 맞춰 자릅니다', icon: 'camera', value: 'camera' },
+  { label: '갤럭시 카메라로 스캔한 사진', desc: '문서 스캔으로 잘라 둔 사진을 그대로 인식', icon: 'scan', value: 'scanned' },
+  { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
+];
 
 async function addCard({ mine = false } = {}) {
   const choice = await sheet({
     title: mine ? '내 명함 등록' : '명함 추가',
-    items: [
-      { label: '카메라로 촬영', desc: '명함을 찍으면 자동으로 읽어옵니다', icon: 'camera', value: 'camera' },
-      { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
-      { label: '직접 입력', icon: 'edit', value: 'manual' },
-    ],
+    items: [...PHOTO_SOURCES, { label: '직접 입력', icon: 'edit', value: 'manual' }],
   });
-  if (choice === 'camera' || choice === 'gallery') pickPhoto(choice, { mode: 'new', mine });
+  if (choice && choice !== 'manual') pickPhoto(choice, { mode: 'new', mine });
   else if (choice === 'manual') {
     draft = newDraft(null, { mine });
     go('#/new');
@@ -489,12 +492,22 @@ function newDraft(card = null, { mine = false } = {}) {
   };
 }
 
+// 테두리 맞추기 화면은 '테두리를 확실히 찾았고 아직 잘리지 않은 사진'일 때만 보여 줍니다.
+// 이미 잘린 사진(갤럭시 스캔 등)이나 테두리를 못 찾은 사진은 원본 그대로 씁니다. (편집 화면의 [자르기]로 언제든 다시 맞춤)
+async function prepareCardImage(file, target) {
+  const blob = await normalizeImage(file);
+  if (target.scanned || store.getSettings().cropScreen === 'off') return blob;
+  const det = await detectCard(blob);
+  if (!det.found || det.coverage > 0.85) return blob;
+  return cropDialog(blob, det);
+}
+
 async function onImagePicked(file) {
   const target = capture || { mode: 'new' };
   capture = null;
   if (!file) return;
   try {
-    const blob = await cropDialog(await normalizeImage(file));
+    const blob = await prepareCardImage(file, target);
     if (!blob) return;
     const photo = { id: store.uid(), fileId: null, blob, changed: true };
     if (target.mode === 'new' || !draft) {
@@ -591,6 +604,7 @@ function renderEditorPhoto() {
         명함 사진을 추가하면 내용을 자동으로 읽어옵니다.
         <div class="btns">
           <button class="btn small primary" data-action="photo-add" data-src="camera">${icon('camera')}촬영</button>
+          <button class="btn small" data-action="photo-add" data-src="scanned">${icon('scan')}갤럭시 스캔 사진</button>
           <button class="btn small" data-action="photo-add" data-src="gallery">${icon('image')}앨범</button>
         </div>
       </div>`;
@@ -612,7 +626,7 @@ function renderEditorPhoto() {
       ${d.photos.length > 1 && d.view !== d.mainPhoto ? `<button class="btn small primary" data-action="photo-main">${icon('star')}대표로 설정</button>` : ''}
       <button class="btn small" data-action="crop">${icon('crop')}자르기</button>
       <button class="btn small" data-action="rotate">${icon('rotate')}회전</button>
-      <button class="btn small" data-action="photo-replace">${icon('camera')}다시 찍기</button>
+      <button class="btn small" data-action="photo-replace">${icon('camera')}사진 바꾸기</button>
       <button class="btn small" data-action="rerun-ocr">${icon('scan')}다시 인식</button>
       <button class="btn small ghost" data-action="remove-photo">${icon('trash')}삭제</button>
     </div>
@@ -1043,6 +1057,7 @@ function renderMyCard() {
         <p>한 번 등록해 두면 카카오톡, 문자로 바로 보낼 수 있어요.<br>앞면과 뒷면을 모두 찍어 둘 수도 있습니다.</p>
         <div class="stack">
           <button class="btn primary block" data-action="mine-add" data-src="camera">${icon('camera')}내 명함 촬영</button>
+          <button class="btn block" data-action="mine-add" data-src="scanned">${icon('scan')}갤럭시 카메라로 스캔한 사진</button>
           <button class="btn block" data-action="mine-add" data-src="gallery">${icon('image')}앨범에서 선택</button>
           <button class="btn ghost block" data-action="mine-add" data-src="manual">${icon('edit')}직접 입력</button>
         </div>
@@ -1156,6 +1171,23 @@ function renderSettings() {
         <button class="btn block" data-action="nav" data-to="#/me">${icon('contact')}${store.getMyCard() ? '내 명함 보기' : '내 명함 등록'}</button>
       </div></section>
 
+      <h2 class="section-title">명함 테두리 맞추기</h2>
+      <section class="panel">
+        <label class="radio-row"><input type="radio" name="crop" value="auto" ${s.cropScreen !== 'off' ? 'checked' : ''}>
+          <span>자동<small>촬영한 사진에서 테두리를 확실히 찾았을 때만 맞추기 화면을 보여 줍니다. 이미 잘린 사진은 그대로 씁니다.</small></span></label>
+        <label class="radio-row"><input type="radio" name="crop" value="off" ${s.cropScreen === 'off' ? 'checked' : ''}>
+          <span>끄기<small>항상 원본 그대로 씁니다. 필요할 때 편집 화면의 [자르기]로 맞추세요.</small></span></label>
+        <details class="help">
+          <summary>갤럭시 카메라로 명함 스캔하는 방법</summary>
+          <ol>
+            <li>기본 <b>카메라</b> 앱을 사진 모드로 열고 명함을 화면에 비춥니다.</li>
+            <li>명함 테두리에 노란 틀과 <b>스캔</b> 버튼이 나타나면 누릅니다. 반듯하게 잘린 이미지가 갤러리에 저장됩니다.</li>
+            <li>스캔 버튼이 안 보이면 카메라 설정에서 <b>장면별 최적 촬영</b> 또는 <b>문서 스캔</b> 항목을 켜 주세요. (기종마다 이름이 조금 다를 수 있습니다)</li>
+            <li>카들리에서 <b>명함 추가 → 갤럭시 카메라로 스캔한 사진</b>을 고르면 자르기 없이 바로 인식합니다.</li>
+          </ol>
+        </details>
+      </section>
+
       <h2 class="section-title">글자 인식(OCR) 방식</h2>
       <section class="panel">
         <label class="radio-row"><input type="radio" name="ocr" value="tesseract" ${s.ocrEngine !== 'vision' ? 'checked' : ''}>
@@ -1252,17 +1284,11 @@ document.addEventListener('click', async e => {
     case 'cancel-edit': return cancelEdit();
     case 'save-card': return saveDraft();
     case 'photo-add': return pickPhoto(el.dataset.src, { mode: 'add' });
-    case 'photo-add-back': {
-      const src = await sheet({
-        title: '뒷면 사진 추가',
-        items: [
-          { label: '카메라로 촬영', icon: 'camera', value: 'camera' },
-          { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
-        ],
-      });
-      return src && pickPhoto(src, { mode: 'add' });
+    case 'photo-add-back':
+    case 'photo-replace': {
+      const src = await sheet({ title: action === 'photo-replace' ? '사진 바꾸기' : '뒷면 사진 추가', items: PHOTO_SOURCES });
+      return src && pickPhoto(src, { mode: action === 'photo-replace' ? 'replace' : 'add' });
     }
-    case 'photo-replace': return pickPhoto('camera', { mode: 'replace' });
     case 'photo-tab':
       draft.view = +el.dataset.i;
       renderEditorPhoto();
@@ -1404,6 +1430,8 @@ document.addEventListener('change', e => {
     ui.sort = t.value;
     store.setUiPrefs({ sort: t.value });
     renderListItems();
+  } else if (t.name === 'crop') {
+    store.setSettings({ cropScreen: t.value });
   } else if (t.name === 'ocr') {
     store.setSettings({ ocrEngine: t.value });
     if (t.value === 'vision' && !store.getSettings().visionApiKey) toast('Vision API 키를 입력해 주세요.');
