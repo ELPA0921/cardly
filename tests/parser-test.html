@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Parser tests</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 16px; background: #fff; color: #111; }
+  .pass { color: #1f9d5c; } .fail { color: #d0393a; }
+  pre { background: #f4f4f4; padding: 8px; font-size: 12px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>명함 파서 테스트</h1>
+<div id="out"></div>
+<script type="module">
+import { parseCard, formatPhone, chosung } from '../js/parser.js';
+import { buildShareText, buildVCard, splitName } from '../js/share.js';
+
+const cases = [
+  {
+    name: '기본 한국 명함 (라벨 있음)',
+    lines: [
+      { text: '창조이엔지 주식회사', height: 40 },
+      { text: '영업팀 부장', height: 22 },
+      { text: '홍 길 동', height: 48 },
+      { text: '서울특별시 강남구 테헤란로 123, 5층', height: 18 },
+      { text: 'T. 02-1234-5678  F. 02-1234-5679', height: 18 },
+      { text: 'M. 010-9876-5432', height: 18 },
+      { text: 'E. gdhong@cjeng.kr', height: 18 },
+      { text: 'www.cjeng.kr', height: 18 },
+    ],
+    expect: { name: '홍길동', company: '창조이엔지 주식회사', department: '영업팀', title: '부장', phone: '02-1234-5678', fax: '02-1234-5679', mobile: '010-9876-5432', email: 'gdhong@cjeng.kr', website: 'www.cjeng.kr', address: '서울특별시 강남구 테헤란로 123, 5층' },
+  },
+  {
+    name: '라벨 없음 + (주) + 이름/직책 한 줄',
+    text: `(주)한빛소프트웨어
+김민수 대표이사
+경기도 성남시 분당구 판교역로 235
+에이치스퀘어 N동 7층
+010.2345.6789
+031-8017-1234
+minsu.kim@hanbitsw.com`,
+    expect: { name: '김민수', title: '대표이사', company: '(주)한빛소프트웨어', mobile: '010-2345-6789', phone: '031-8017-1234', email: 'minsu.kim@hanbitsw.com', address: '경기도 성남시 분당구 판교역로 235 에이치스퀘어 N동 7층' },
+  },
+  {
+    name: '영문 라벨 + 국제번호',
+    text: `Tel : +82-2-555-1234
+Mobile : +82 10 1111 2222
+Fax:02)555-1235
+E-mail: lee@abc-eng.co.kr
+에이비씨엔지니어링
+설계본부 수석연구원
+이 영 희
+부산광역시 해운대구 센텀중앙로 97`,
+    expect: { name: '이영희', phone: '02-555-1234', mobile: '010-1111-2222', fax: '02-555-1235', email: 'lee@abc-eng.co.kr', company: '에이비씨엔지니어링', department: '설계본부', title: '수석연구원', address: '부산광역시 해운대구 센텀중앙로 97' },
+  },
+  {
+    name: '휴대폰/전화 한글 라벨, 대표번호',
+    text: `㈜대한건설
+공무팀 과장  박지성
+전화 1588-1234   휴대폰 010 3333 4444
+팩스 02-777-8888
+park@daehan.com`,
+    expect: { company: '㈜대한건설', name: '박지성', title: '과장', department: '공무팀', phone: '1588-1234', mobile: '010-3333-4444', fax: '02-777-8888', email: 'park@daehan.com' },
+  },
+  {
+    name: '영문 명함',
+    text: `GLOBAL TECH SOLUTIONS INC.
+John Smith
+Senior Manager
+john.smith@globaltech.com
++82 10-5555-6666`,
+    expect: { company: 'GLOBAL TECH SOLUTIONS INC.', name: 'John Smith', title: 'Senior Manager', mobile: '010-5555-6666', email: 'john.smith@globaltech.com' },
+  },
+];
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const results = [];
+for (const c of cases) {
+  const r = parseCard(c.lines ? { lines: c.lines } : { text: c.text });
+  const errors = Object.entries(c.expect).filter(([k, v]) => r[k] !== v).map(([k, v]) => `${k}: 기대 "${v}" / 실제 "${r[k]}"`);
+  errors.length ? fail++ : pass++;
+  results.push({ name: c.name, errors });
+  out.insertAdjacentHTML('beforeend', `<h3 class="${errors.length ? 'fail' : 'pass'}">${errors.length ? '✗' : '✓'} ${c.name}</h3>${errors.length ? `<pre>${errors.join('\n')}</pre>` : ''}<pre>${JSON.stringify(r, null, 1)}</pre>`);
+}
+
+// 기타 유틸
+const misc = [
+  ['email OCR 공백 보정', parseCard({ text: '£ gdhong@cjeng kr' }).email, 'gdhong@cjeng.kr'],
+  ['formatPhone 02', formatPhone('0212345678'), '02-1234-5678'],
+  ['formatPhone 010', formatPhone('01012345678'), '010-1234-5678'],
+  ['formatPhone 070', formatPhone('070 1234 5678'), '070-1234-5678'],
+  ['chosung', chosung('홍길동'), 'ㅎㄱㄷ'],
+  ['splitName', JSON.stringify(splitName('남궁민수')), JSON.stringify({ family: '남궁', given: '민수' })],
+  ['shareText', buildShareText({ name: '홍길동', company: '창조이엔지', title: '부장' }), '이름: 홍길동\n회사명: 창조이엔지\n직책: 부장'],
+  ['vcard N', buildVCard({ name: '홍길동', company: 'A;B' }).split('\r\n')[2], 'N:홍;길동;;;'],
+];
+for (const [name, got, want] of misc) {
+  const ok = got === want;
+  ok ? pass++ : fail++;
+  results.push({ name, errors: ok ? [] : [`기대 "${want}" / 실제 "${got}"`] });
+  out.insertAdjacentHTML('beforeend', `<div class="${ok ? 'pass' : 'fail'}">${ok ? '✓' : '✗'} ${name} ${ok ? '' : `→ ${got}`}</div>`);
+}
+document.title = `Parser tests: ${pass} pass, ${fail} fail`;
+out.insertAdjacentHTML('afterbegin', `<h2>${pass} 통과 / ${fail} 실패</h2>`);
+window.__results = { pass, fail, results };
+</script>
+</body>
+</html>

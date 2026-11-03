@@ -1,0 +1,108 @@
+// 공유 텍스트, 클립보드, vCard(.vcf) 만들기
+import { SHARE_KEYS, fieldLabel } from './fields.js';
+
+const SHARE_LABELS = { company: '회사명' };
+
+export function buildShareText(card) {
+  return SHARE_KEYS.filter(k => card[k])
+    .map(k => `${SHARE_LABELS[k] || fieldLabel(k)}: ${card[k]}`)
+    .join('\n');
+}
+
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+}
+
+// 반환: 'shared' | 'copied' | 'cancel'
+export async function shareCardText(card) {
+  const text = buildShareText(card);
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      return 'shared';
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancel';
+    }
+  }
+  await copyText(text);
+  return 'copied';
+}
+
+const COMPOUND_SURNAMES = ['남궁', '황보', '제갈', '선우', '독고', '사공', '서문', '동방'];
+
+export function splitName(name) {
+  const n = (name || '').trim();
+  if (!n) return { family: '', given: '' };
+  if (/^[가-힣]+$/.test(n)) {
+    const len = COMPOUND_SURNAMES.some(s => n.startsWith(s)) && n.length >= 3 ? 2 : 1;
+    return { family: n.slice(0, len), given: n.slice(len) };
+  }
+  const parts = n.split(/\s+/);
+  if (parts.length === 1) return { family: '', given: n };
+  return { family: parts.at(-1), given: parts.slice(0, -1).join(' ') };
+}
+
+const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+
+export function buildVCard(card) {
+  const { family, given } = splitName(card.name);
+  const lines = ['BEGIN:VCARD', 'VERSION:3.0', `N:${esc(family)};${esc(given)};;;`, `FN:${esc(card.name || card.company || '이름 없음')}`];
+  if (card.company || card.department) lines.push(`ORG:${esc(card.company)}${card.department ? ';' + esc(card.department) : ''}`);
+  if (card.title) lines.push(`TITLE:${esc(card.title)}`);
+  if (card.mobile) lines.push(`TEL;TYPE=CELL:${card.mobile}`);
+  if (card.phone) lines.push(`TEL;TYPE=WORK,VOICE:${card.phone}`);
+  if (card.fax) lines.push(`TEL;TYPE=WORK,FAX:${card.fax}`);
+  if (card.email) lines.push(`EMAIL;TYPE=INTERNET,WORK:${card.email}`);
+  if (card.address) lines.push(`ADR;TYPE=WORK:;;${esc(card.address)};;;;`);
+  if (card.website) lines.push(`URL:${/^https?:\/\//i.test(card.website) ? card.website : 'http://' + card.website}`);
+  if (card.memo) lines.push(`NOTE:${esc(card.memo)}`);
+  lines.push('END:VCARD');
+  return lines.join('\r\n') + '\r\n';
+}
+
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+const safeName = s => (s || '').replace(/[\\/:*?"<>|]/g, '').trim();
+
+export function vcardFilename(cards, label) {
+  if (label) return `${safeName(label)}.vcf`;
+  if (cards.length === 1) return `${safeName(cards[0].name || cards[0].company) || '명함'}.vcf`;
+  return `명함_${cards.length}명.vcf`;
+}
+
+// 반환: 'shared' | 'downloaded' | 'cancel'
+export async function shareVCard(cards, label) {
+  const filename = vcardFilename(cards, label);
+  const file = new File([cards.map(buildVCard).join('')], filename, { type: 'text/vcard' });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return 'shared';
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancel';
+    }
+  }
+  downloadBlob(file, filename);
+  return 'downloaded';
+}
+
