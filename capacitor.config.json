@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.elpa0921.cardly",
+  "appName": "카들리",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}

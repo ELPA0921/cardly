@@ -3,7 +3,7 @@ const CACHE = 'bc-shell-v5';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/app.js', 'js/store.js', 'js/sync.js', 'js/drive.js', 'js/idb.js', 'js/ocr.js',
-  'js/parser.js', 'js/share.js', 'js/fields.js', 'js/icons.js', 'js/config.js', 'js/scan.js',
+  'js/parser.js', 'js/share.js', 'js/fields.js', 'js/icons.js', 'js/config.js', 'js/scan.js', 'js/native.js',
 ];
 
 self.addEventListener('install', e => {

@@ -1,0 +1,74 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "io.github.elpa0921.cardly"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "io.github.elpa0921.cardly"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "0.5.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // 카들리 서명 키: 저장소 밖(%USERPROFILE%\.cardly)에 두고, 경로/비밀번호는 ~/.gradle/gradle.properties에서 읽습니다.
+    // 앱 업데이트는 항상 같은 키로 서명해야 하므로 이 키를 잃어버리지 않게 백업해 두세요.
+    signingConfigs {
+        cardly {
+            if (project.hasProperty('CARDLY_STORE_FILE')) {
+                storeFile file(CARDLY_STORE_FILE)
+                storePassword CARDLY_STORE_PASSWORD
+                keyAlias CARDLY_KEY_ALIAS
+                keyPassword CARDLY_KEY_PASSWORD
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (project.hasProperty('CARDLY_STORE_FILE')) signingConfig signingConfigs.cardly
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (project.hasProperty('CARDLY_STORE_FILE')) signingConfig signingConfigs.cardly
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    // 카들리 네이티브: 문서 스캐너, 한국어 글자 인식, Google 권한(Drive)
+    implementation "com.google.android.gms:play-services-mlkit-document-scanner:16.0.0"
+    implementation "com.google.mlkit:text-recognition-korean:16.0.1"
+    implementation "com.google.android.gms:play-services-auth:22.0.0"
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

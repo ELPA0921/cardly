@@ -2,6 +2,7 @@
 import * as store from './store.js';
 import * as drive from './drive.js';
 import * as idb from './idb.js';
+import { isNative } from './native.js';
 
 // state: local(미연결) | auth(재연결 필요) | syncing | synced | offline | error
 let status = { state: 'local', message: '', lastSync: store.getSyncMeta().lastSync || 0 };
@@ -22,9 +23,12 @@ function setStatus(state, message = '') {
   listeners.forEach(fn => fn(status));
 }
 
+// 앱은 토큰이 만료돼도 화면 없이 다시 받을 수 있으므로, 한 번 연결했으면 연결된 것으로 봅니다.
+const connected = () => drive.hasValidToken() || (isNative && !!store.getSyncMeta().email);
+
 export function refreshStatus() {
   const meta = store.getSyncMeta();
-  if (drive.hasValidToken()) {
+  if (connected()) {
     if (status.state === 'local' || status.state === 'auth') setStatus('synced');
   } else {
     setStatus(meta.email ? 'auth' : 'local');
@@ -32,7 +36,7 @@ export function refreshStatus() {
 }
 
 export function scheduleSync(delay = 1500) {
-  if (!drive.hasValidToken()) return refreshStatus();
+  if (!connected()) return refreshStatus();
   clearTimeout(timer);
   timer = setTimeout(syncNow, delay);
 }
@@ -67,7 +71,7 @@ export async function syncNow() {
     again = true;
     return;
   }
-  if (!drive.hasValidToken()) return refreshStatus();
+  if (!connected()) return refreshStatus();
   if (!navigator.onLine) return setStatus('offline', '오프라인 상태입니다.');
 
   running = true;
@@ -147,7 +151,7 @@ export async function loadPhoto(photo) {
   if (!photo) return null;
   const cached = await idb.getImage(photo.id);
   if (cached?.blob && (!photo.fileId || !cached.fileId || cached.fileId === photo.fileId)) return cached.blob;
-  if (photo.fileId && drive.hasValidToken()) {
+  if (photo.fileId && connected()) {
     const blob = await drive.download(photo.fileId);
     await idb.putImage(photo.id, { blob, fileId: photo.fileId });
     return blob;

@@ -4,6 +4,7 @@ import * as drive from './drive.js';
 import * as idb from './idb.js';
 import { recognize, normalizeImage } from './ocr.js';
 import { detectCard, warpCard } from './scan.js';
+import { isNative, Native, base64ToBlob } from './native.js';
 import { parseCard, chosung } from './parser.js';
 import { buildShareText, copyText, shareCardText, shareVCard, sharePhotos, downloadBlob } from './share.js';
 import { FIELDS, FIELD_KEYS, fieldLabel } from './fields.js';
@@ -442,16 +443,36 @@ function renderListItems() {
 
 // ---------- 명함 추가 / 사진 선택 ----------
 // source: 'camera' | 'gallery' | 'scanned'(갤럭시 카메라 문서 스캔으로 이미 잘라 둔 사진 → 자르기 화면 생략)
+//         | 'native-scan'(앱 전용: ML Kit 문서 스캐너로 테두리를 잡아 촬영)
 function pickPhoto(source, target) {
+  if (source === 'native-scan') return nativeScan(target);
   capture = { ...target, scanned: source === 'scanned' };
   document.getElementById(source === 'camera' ? 'file-camera' : 'file-gallery').click();
 }
 
-const PHOTO_SOURCES = [
-  { label: '카메라로 촬영', desc: '찍은 뒤 명함 테두리를 맞춰 자릅니다', icon: 'camera', value: 'camera' },
-  { label: '갤럭시 카메라로 스캔한 사진', desc: '문서 스캔으로 잘라 둔 사진을 그대로 인식', icon: 'scan', value: 'scanned' },
-  { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
-];
+const PHOTO_SOURCES = isNative
+  ? [
+      { label: '명함 스캔', desc: '테두리를 자동으로 잡아 반듯하게 찍습니다 (앞·뒷면 연속 촬영 가능)', icon: 'scan', value: 'native-scan' },
+      { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
+    ]
+  : [
+      { label: '카메라로 촬영', desc: '찍은 뒤 명함 테두리를 맞춰 자릅니다', icon: 'camera', value: 'camera' },
+      { label: '갤럭시 카메라로 스캔한 사진', desc: '문서 스캔으로 잘라 둔 사진을 그대로 인식', icon: 'scan', value: 'scanned' },
+      { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
+    ];
+
+// 앱: ML Kit 문서 스캐너. 새 명함이면 앞면·뒷면 2장까지 이어서 찍을 수 있습니다.
+async function nativeScan(target) {
+  try {
+    const res = await Native.scanDocument({ pageLimit: target.mode === 'new' ? MAX_PHOTOS : 1 });
+    if (res.cancelled || !res.images?.length) return;
+    const blobs = [];
+    for (const b64 of res.images) blobs.push(await normalizeImage(await base64ToBlob(b64)));
+    addPickedPhotos(blobs, target);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
 
 async function addCard({ mine = false } = {}) {
   const choice = await sheet({
@@ -508,28 +529,35 @@ async function onImagePicked(file) {
   if (!file) return;
   try {
     const blob = await prepareCardImage(file, target);
-    if (!blob) return;
-    const photo = { id: store.uid(), fileId: null, blob, changed: true };
-    if (target.mode === 'new' || !draft) {
-      draft = newDraft(null, { mine: !!target.mine });
-      draft.photos = [photo];
-      go('#/new');
-    } else if (target.mode === 'replace' && draft.photos[draft.view]) {
-      const old = draft.photos[draft.view];
-      draft.removed.push({ id: old.id, fileId: old.fileId });
-      draft.photos[draft.view] = photo;
-      renderEditorPhoto();
-    } else {
-      if (draft.photos.length >= MAX_PHOTOS) return toast('사진은 앞면, 뒷면 2장까지 넣을 수 있습니다.', 'error');
-      draft.photos.push(photo);
-      draft.view = draft.photos.length - 1;
-      renderEditorPhoto();
-      renderOcrLines();
-    }
-    runOcr(photo.id);
+    if (blob) addPickedPhotos([blob], target);
   } catch (e) {
     toast(e.message, 'error');
   }
+}
+
+// 고른/찍은 사진을 편집 중인 명함에 넣고 글자 인식을 시작합니다.
+function addPickedPhotos(blobs, target) {
+  const photos = blobs.slice(0, MAX_PHOTOS).map(blob => ({ id: store.uid(), fileId: null, blob, changed: true }));
+  if (target.mode === 'new' || !draft) {
+    draft = newDraft(null, { mine: !!target.mine });
+    draft.photos = photos;
+    go('#/new');
+  } else if (target.mode === 'replace' && draft.photos[draft.view]) {
+    const old = draft.photos[draft.view];
+    draft.removed.push({ id: old.id, fileId: old.fileId });
+    draft.photos[draft.view] = photos[0];
+    photos.length = 1;
+    renderEditorPhoto();
+  } else {
+    if (draft.photos.length >= MAX_PHOTOS) return toast('사진은 앞면, 뒷면 2장까지 넣을 수 있습니다.', 'error');
+    draft.photos.push(photos[0]);
+    photos.length = 1;
+    draft.view = draft.photos.length - 1;
+    renderEditorPhoto();
+    renderOcrLines();
+  }
+  // 앞면을 먼저 인식해야 뒷면이 빈 항목만 채웁니다
+  photos.reduce((prev, p) => prev.then(() => runOcr(p.id)), Promise.resolve());
 }
 
 // ---------- 편집 ----------
@@ -603,9 +631,7 @@ function renderEditorPhoto() {
       <div class="photo-empty">
         명함 사진을 추가하면 내용을 자동으로 읽어옵니다.
         <div class="btns">
-          <button class="btn small primary" data-action="photo-add" data-src="camera">${icon('camera')}촬영</button>
-          <button class="btn small" data-action="photo-add" data-src="scanned">${icon('scan')}갤럭시 스캔 사진</button>
-          <button class="btn small" data-action="photo-add" data-src="gallery">${icon('image')}앨범</button>
+          ${PHOTO_SOURCES.map((s, i) => `<button class="btn small ${i ? '' : 'primary'}" data-action="photo-add" data-src="${s.value}">${icon(s.icon)}${esc(s.label)}</button>`).join('')}
         </div>
       </div>`;
     return updateOcrStatus();
@@ -920,6 +946,7 @@ function renderDetail(id) {
       </section>`}
       ${c.memo ? `<section class="panel"><p class="panel-title">메모</p><p class="memo">${esc(c.memo)}</p></section>` : ''}
       <section class="detail-actions">
+        ${isNative ? `<button class="btn primary" data-action="save-contact" data-id="${c.id}" style="grid-column:1/-1">${icon('contact')}휴대폰 주소록에 저장</button>` : ''}
         <button class="btn" data-action="share" data-id="${c.id}">${icon('share')}공유</button>
         <button class="btn" data-action="vcard" data-id="${c.id}">${icon('download')}연락처 파일</button>
         <button class="btn danger" data-action="delete-card" data-id="${c.id}" style="grid-column:1/-1">${icon('trash')}${c.isMine ? '내 명함 삭제' : '삭제'}</button>
@@ -976,6 +1003,41 @@ async function shareCard(id) {
   } else if (choice === 'vcard') {
     const r = await shareVCard([c]);
     if (r === 'downloaded') toast('연락처 파일을 내려받았습니다.');
+  }
+}
+
+// 앱: 휴대폰 주소록에 저장. 같은 번호의 연락처가 있으면 덮어쓸지 묻습니다.
+async function saveToContacts(id) {
+  const c = store.getCard(id);
+  if (!c) return;
+  if (!c.name && !c.company) return toast('이름이나 회사명이 있어야 주소록에 저장할 수 있습니다.', 'error');
+  try {
+    let contactId = null;
+    const phones = [c.mobile, c.phone].filter(Boolean);
+    if (phones.length) {
+      const { matches = [] } = await Native.findContact({ phones });
+      if (matches.length) {
+        const m = matches[0];
+        const more = matches.length > 1 ? `\n(같은 번호 연락처가 ${matches.length}개 있습니다. 첫 번째 연락처를 덮어씁니다.)` : '';
+        const choice = await dialog({
+          title: '주소록에 이미 있는 번호예요',
+          message: `${m.name || '(이름 없음)'} · ${m.phone}${more}\n\n덮어쓰면 이름·회사·직책·이메일·주소가 명함 내용으로 바뀌고, 다른 전화번호는 그대로 남습니다.`,
+          buttons: [
+            { label: '덮어쓰기', value: 'overwrite', style: 'primary' },
+            { label: '새 연락처로 저장', value: 'new' },
+            { label: '취소', value: null, style: 'ghost' },
+          ],
+        });
+        if (!choice) return;
+        if (choice === 'overwrite') contactId = m.contactId;
+      }
+    }
+    const fields = {};
+    FIELD_KEYS.forEach(k => (fields[k] = c[k] || ''));
+    await Native.saveContact({ ...fields, contactId });
+    toast(contactId ? '주소록의 연락처를 덮어썼습니다.' : '주소록에 저장했습니다.');
+  } catch (e) {
+    toast(e.message || '주소록에 저장하지 못했습니다.', 'error');
   }
 }
 
@@ -1056,9 +1118,7 @@ function renderMyCard() {
         <h2>내 명함을 등록하세요</h2>
         <p>한 번 등록해 두면 카카오톡, 문자로 바로 보낼 수 있어요.<br>앞면과 뒷면을 모두 찍어 둘 수도 있습니다.</p>
         <div class="stack">
-          <button class="btn primary block" data-action="mine-add" data-src="camera">${icon('camera')}내 명함 촬영</button>
-          <button class="btn block" data-action="mine-add" data-src="scanned">${icon('scan')}갤럭시 카메라로 스캔한 사진</button>
-          <button class="btn block" data-action="mine-add" data-src="gallery">${icon('image')}앨범에서 선택</button>
+          ${PHOTO_SOURCES.map((s, i) => `<button class="btn ${i ? '' : 'primary'} block" data-action="mine-add" data-src="${s.value}">${icon(s.icon)}${esc(s.label)}</button>`).join('')}
           <button class="btn ghost block" data-action="mine-add" data-src="manual">${icon('edit')}직접 입력</button>
         </div>
         <p class="small-note">${meta.email && drive.hasValidToken() ? `${esc(meta.email)} 계정의 Google Drive에 함께 저장됩니다.` : 'Google Drive에 연결하면 다른 기기에서도 내 명함을 쓸 수 있습니다.'}</p>
@@ -1171,7 +1231,7 @@ function renderSettings() {
         <button class="btn block" data-action="nav" data-to="#/me">${icon('contact')}${store.getMyCard() ? '내 명함 보기' : '내 명함 등록'}</button>
       </div></section>
 
-      <h2 class="section-title">명함 테두리 맞추기</h2>
+      ${isNative ? '' : `<h2 class="section-title">명함 테두리 맞추기</h2>
       <section class="panel">
         <label class="radio-row"><input type="radio" name="crop" value="auto" ${s.cropScreen !== 'off' ? 'checked' : ''}>
           <span>자동<small>촬영한 사진에서 테두리를 확실히 찾았을 때만 맞추기 화면을 보여 줍니다. 이미 잘린 사진은 그대로 씁니다.</small></span></label>
@@ -1186,11 +1246,13 @@ function renderSettings() {
             <li>카들리에서 <b>명함 추가 → 갤럭시 카메라로 스캔한 사진</b>을 고르면 자르기 없이 바로 인식합니다.</li>
           </ol>
         </details>
-      </section>
+      </section>`}
 
       <h2 class="section-title">글자 인식(OCR) 방식</h2>
       <section class="panel">
-        <label class="radio-row"><input type="radio" name="ocr" value="tesseract" ${s.ocrEngine !== 'vision' ? 'checked' : ''}>
+        ${isNative ? `<label class="radio-row"><input type="radio" name="ocr" value="mlkit" ${s.ocrEngine === 'mlkit' ? 'checked' : ''}>
+          <span>휴대폰 내장 인식 (추천)<small>Google ML Kit 한국어 인식. 무료이고 인터넷 없이도 휴대폰 안에서 처리합니다.</small></span></label>` : ''}
+        <label class="radio-row"><input type="radio" name="ocr" value="tesseract" ${s.ocrEngine === 'tesseract' ? 'checked' : ''}>
           <span>기본 (무료, 기기 안에서 처리)<small>처음 한 번 한국어 인식 데이터(약 10MB)를 내려받습니다. 정확도는 보통입니다.</small></span></label>
         <label class="radio-row"><input type="radio" name="ocr" value="vision" ${s.ocrEngine === 'vision' ? 'checked' : ''}>
           <span>Google Cloud Vision (정확도 높음)<small>월 1,000건까지 무료. 키를 한 번 입력하면 내 Google Drive에 저장되어 다른 기기에도 자동 적용됩니다.</small></span></label>
@@ -1209,7 +1271,7 @@ function renderSettings() {
         <p class="small-note">연락처 파일(.vcf)을 갤럭시에서 열면 주소록에 한꺼번에 저장할 수 있습니다.</p>
       </div></section>
 
-      <h2 class="section-title">고급 설정</h2>
+      ${isNative ? '' : `<h2 class="section-title">고급 설정</h2>
       <section class="panel">
         <div class="panel-body">
           <label class="field"><span>Google OAuth 클라이언트 ID</span><input id="client-id" value="${esc(s.googleClientId)}" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off"></label>
@@ -1225,8 +1287,8 @@ function renderSettings() {
             <li>만들어진 클라이언트 ID를 위 칸에 붙여 넣습니다.</li>
           </ol>
         </details>
-      </section>
-      <p class="meta">카들리 (Cardly) v${APP_VERSION}</p>
+      </section>`}
+      <p class="meta">카들리 (Cardly) v${APP_VERSION}${isNative ? ' · 앱' : ''}</p>
     </main>`;
 }
 
@@ -1346,6 +1408,7 @@ document.addEventListener('click', async e => {
       store.patchCard(id, { mainPhoto: detailView.index });
       return toast(`${sideLabel(detailView.index)}을 대표 사진으로 정했습니다.`);
     case 'share': return shareCard(id);
+    case 'save-contact': return saveToContacts(id);
     case 'vcard': {
       const r = await shareVCard([store.getCard(id)]);
       if (r === 'downloaded') toast('연락처 파일을 내려받았습니다. 열면 주소록에 저장할 수 있어요.');
@@ -1481,8 +1544,10 @@ render();
 sync.refreshStatus();
 const startSettings = store.getSettings();
 if (startSettings.googleClientId) drive.prepare(startSettings.googleClientId).catch(() => {});
-if (drive.hasValidToken()) sync.syncNow();
+if (drive.hasValidToken() || (isNative && store.getSyncMeta().email)) sync.syncNow();
+// 앱은 다시 열 때마다(백그라운드 → 앞) 동기화
+if (isNative) document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && sync.scheduleSync(300));
 
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+if (!isNative && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

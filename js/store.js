@@ -1,6 +1,7 @@
 // 로컬 데이터 저장소 (localStorage) + Google Drive 데이터와의 병합
 import { DEFAULT_CONFIG } from './config.js';
 import { FIELD_KEYS } from './fields.js';
+import { isNative } from './native.js';
 
 const DATA_KEY = 'bc.data.v1';
 const SETTINGS_KEY = 'bc.settings.v1';
@@ -198,8 +199,8 @@ export function getSettings() {
   const visionApiKey = getPref('visionApiKey') || s.visionApiKey || DEFAULT_CONFIG.visionApiKey;
   return {
     ...s,
-    // Vision 키가 있으면 기본으로 Vision 사용 (설정에서 직접 고른 값이 우선)
-    ocrEngine: s.ocrEngine || (visionApiKey ? 'vision' : 'tesseract'),
+    // 기본 OCR: 앱이면 ML Kit, 웹이면 Vision 키가 있을 때 Vision (설정에서 직접 고른 값이 우선)
+    ocrEngine: (s.ocrEngine === 'mlkit' && !isNative ? '' : s.ocrEngine) || (isNative ? 'mlkit' : visionApiKey ? 'vision' : 'tesseract'),
     googleClientId: s.googleClientId || DEFAULT_CONFIG.googleClientId,
     visionApiKey,
     driveFolderName: DEFAULT_CONFIG.driveFolderName,

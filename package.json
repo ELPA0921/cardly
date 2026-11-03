@@ -1,0 +1,20 @@
+{
+  "name": "cardly",
+  "version": "0.5.0",
+  "private": true,
+  "description": "카들리 (Cardly) — 명함 관리 앱",
+  "scripts": {
+    "build": "node scripts/build-web.mjs",
+    "sync": "node scripts/build-web.mjs && cap sync android",
+    "apk": "node scripts/build-web.mjs && cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

@@ -1,7 +1,9 @@
 // 이미지 처리 + OCR 엔진
 //  - tesseract: 기기 안에서 처리 (무료, 오프라인 가능, 정확도 보통)
 //  - vision:    Google Cloud Vision API (정확도 높음, API 키 필요)
+//  - mlkit:     (앱 전용) 휴대폰 안의 Google ML Kit 한국어 인식 (무료, 정확도 높음)
 import { loadScript } from './drive.js';
+import { Native, blobToBase64 } from './native.js';
 
 const TESSERACT_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 
@@ -115,14 +117,6 @@ async function recognizeTesseract(blob, onProgress) {
   return { text: data.text || '', lines: lines.filter(l => l.text) };
 }
 
-const blobToBase64 = blob =>
-  new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result).split(',')[1]);
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
-
 async function recognizeVision(blob, apiKey, onProgress) {
   onProgress?.(0.2, 'Google Vision으로 인식 중');
   const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`, {
@@ -180,7 +174,16 @@ function visionLines(full) {
   return lines;
 }
 
+// 앱 전용: 휴대폰 안의 Google ML Kit 한국어 글자 인식 (무료, 오프라인)
+async function recognizeMlKit(blob, onProgress) {
+  onProgress?.(0.3, '휴대폰에서 글자 인식 중');
+  const res = await Native.recognizeText({ base64: await blobToBase64(blob) });
+  onProgress?.(1, '인식 완료');
+  return { text: res.text || '', lines: (res.lines || []).filter(l => l.text) };
+}
+
 export async function recognize(blob, { engine = 'tesseract', apiKey = '', onProgress } = {}) {
+  if (engine === 'mlkit' && Native) return { ...(await recognizeMlKit(blob, onProgress)), engine: 'mlkit' };
   if (engine === 'vision' && apiKey) return { ...(await recognizeVision(blob, apiKey, onProgress)), engine: 'vision' };
   return { ...(await recognizeTesseract(blob, onProgress)), engine: 'tesseract' };
 }

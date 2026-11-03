@@ -1,5 +1,6 @@
 // 공유 텍스트, 클립보드, vCard(.vcf) 만들기
 import { SHARE_KEYS, fieldLabel } from './fields.js';
+import { isNative, shareNative } from './native.js';
 
 const SHARE_LABELS = { company: '회사명' };
 
@@ -27,6 +28,7 @@ export async function copyText(text) {
 // 반환: 'shared' | 'copied' | 'cancel'
 export async function shareCardText(card) {
   const text = buildShareText(card);
+  if (isNative) return shareNative({ text });
   if (navigator.share) {
     try {
       await navigator.share({ text });
@@ -71,7 +73,9 @@ export function buildVCard(card) {
   return lines.join('\r\n') + '\r\n';
 }
 
+// 앱에서는 내려받기 대신 공유 창으로 파일을 보냅니다 (저장, 카카오톡, Drive 등 선택)
 export function downloadBlob(blob, filename) {
+  if (isNative) return shareNative({ files: [{ name: filename, blob }] });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -94,6 +98,7 @@ export function vcardFilename(cards, label) {
 export async function sharePhotos(card, blobs) {
   const base = safeName(card.name || card.company) || '명함';
   const files = blobs.map((b, i) => new File([b], `${base}${blobs.length > 1 ? (i ? '_뒷면' : '_앞면') : ''}.jpg`, { type: 'image/jpeg' }));
+  if (isNative) return shareNative({ text: buildShareText(card), files: files.map(f => ({ name: f.name, blob: f })) });
   if (navigator.canShare?.({ files })) {
     try {
       await navigator.share({ files, text: buildShareText(card) });
@@ -110,6 +115,7 @@ export async function sharePhotos(card, blobs) {
 export async function shareVCard(cards, label) {
   const filename = vcardFilename(cards, label);
   const file = new File([cards.map(buildVCard).join('')], filename, { type: 'text/vcard' });
+  if (isNative) return shareNative({ files: [{ name: filename, blob: file }] });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });

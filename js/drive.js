@@ -1,5 +1,8 @@
 // Google 로그인(Google Identity Services) + Google Drive API v3
 // 권한 범위는 drive.file — 이 앱이 만든 파일/폴더에만 접근합니다.
+// 앱(안드로이드)에서는 GIS 대신 네이티브 Google 권한 요청을 씁니다.
+import { isNative, Native } from './native.js';
+
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const API = 'https://www.googleapis.com/drive/v3';
@@ -44,8 +47,33 @@ export function loadScript(src) {
   return scriptPromises[src];
 }
 
+function saveToken(accessToken, expiresInSec = 3600) {
+  token = { access_token: accessToken, expiry: Date.now() + expiresInSec * 1000 - 60_000 };
+  localStorage.setItem(TOKEN_KEY, JSON.stringify(token));
+  return token;
+}
+
+// 앱: 안드로이드 Google 계정으로 Drive 권한을 받습니다. 이미 허용했으면 화면 없이 새 토큰을 줍니다.
+async function nativeAuthorize(interactive) {
+  const res = await Native.authorize({ scopes: [SCOPE], interactive });
+  if (!res?.accessToken) throw new Error('Google 권한을 받지 못했습니다.');
+  return saveToken(res.accessToken, 50 * 60);
+}
+
+// 앱에서 토큰이 만료되면 사용자에게 묻지 않고 다시 받아옵니다. (웹에서는 항상 false)
+export async function refreshSilently() {
+  if (!isNative) return false;
+  try {
+    await nativeAuthorize(false);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // 로그인 버튼을 누를 때 팝업이 차단되지 않도록 미리 불러둡니다.
 export async function prepare(clientId) {
+  if (isNative) return;
   if (!clientId) throw new Error('Google OAuth 클라이언트 ID가 설정되지 않았습니다. 설정 화면에서 입력해 주세요.');
   await loadScript(GIS_SRC);
   if (!tokenClient || tokenClientId !== clientId) {
@@ -55,13 +83,12 @@ export async function prepare(clientId) {
 }
 
 export async function signIn(clientId, { hint } = {}) {
+  if (isNative) return nativeAuthorize(true);
   await prepare(clientId);
   return new Promise((resolve, reject) => {
     tokenClient.callback = resp => {
       if (resp.error) return reject(new Error(resp.error_description || resp.error));
-      token = { access_token: resp.access_token, expiry: Date.now() + (Number(resp.expires_in) || 3600) * 1000 - 60_000 };
-      localStorage.setItem(TOKEN_KEY, JSON.stringify(token));
-      resolve(token);
+      resolve(saveToken(resp.access_token, Number(resp.expires_in) || 3600));
     };
     tokenClient.error_callback = err =>
       reject(new Error(err?.type === 'popup_closed' ? '로그인 창이 닫혔습니다.' : err?.message || '로그인에 실패했습니다.'));
@@ -76,14 +103,15 @@ export function signOut() {
   clearToken();
 }
 
-async function gfetch(url, opts = {}) {
-  if (!hasValidToken()) throw new AuthError('Google 로그인이 필요합니다.');
+async function gfetch(url, opts = {}, retried = false) {
+  if (!hasValidToken() && !(await refreshSilently())) throw new AuthError('Google 로그인이 필요합니다.');
   const res = await fetch(url, {
     ...opts,
     headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + token.access_token },
   });
   if (res.status === 401) {
     clearToken();
+    if (!retried && (await refreshSilently())) return gfetch(url, opts, true);
     throw new AuthError('Google 로그인이 만료되었습니다.');
   }
   if (!res.ok) {
