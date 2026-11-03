@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.CommonDataKinds;
@@ -162,8 +163,16 @@ public class CardlyNativePlugin extends Plugin {
         for (Text.TextBlock block : text.getTextBlocks()) {
             for (Text.Line line : block.getLines()) {
                 JSObject l = new JSObject();
+                Rect box = line.getBoundingBox();
                 l.put("text", line.getText());
-                l.put("height", line.getBoundingBox() != null ? line.getBoundingBox().height() : 0);
+                l.put("height", box != null ? box.height() : 0);
+                // 위치: 따로 인식된 'TEL:' 라벨과 오른쪽 번호를 짝짓는 데 씀 (js/parser.js)
+                if (box != null) {
+                    l.put("left", box.left);
+                    l.put("top", box.top);
+                    l.put("right", box.right);
+                    l.put("bottom", box.bottom);
+                }
                 lines.put(l);
             }
         }

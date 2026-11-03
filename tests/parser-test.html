@@ -72,6 +72,74 @@ john.smith@globaltech.com
 +82 10-5555-6666`,
     expect: { company: 'GLOBAL TECH SOLUTIONS INC.', name: 'John Smith', title: 'Senior Manager', mobile: '010-5555-6666', email: 'john.smith@globaltech.com' },
   },
+  {
+    name: 'TEL/FAX/H.P 라벨 (점·띄어쓰기 오인식)',
+    text: `창조이엔지 주식회사
+설계팀 과장 홍길동
+TEL.: 02-1234-5678
+F A X : 02-1234-5679
+H. P : 010-9876-5432`,
+    expect: { company: '창조이엔지 주식회사', name: '홍길동', title: '과장', department: '설계팀', phone: '02-1234-5678', fax: '02-1234-5679', mobile: '010-9876-5432', memo: '' },
+  },
+  {
+    name: 'TEL 라벨에 010 번호 → 휴대폰',
+    text: `(주)대한건설
+김철수 대리
+TEL: 010-1234-5678
+FAX: 031-123-4567`,
+    expect: { name: '김철수', mobile: '010-1234-5678', phone: '', fax: '031-123-4567' },
+  },
+  {
+    name: 'TEL 010 + H.P 010 → H.P가 휴대폰, TEL은 전화',
+    text: `TEL: 010-1111-2222
+H.P: 010-3333-4444`,
+    expect: { mobile: '010-3333-4444', phone: '010-1111-2222', memo: '' },
+  },
+  {
+    name: '라벨 열과 번호 열이 따로 인식됨 (ML Kit 블록)',
+    lines: [
+      { text: '한빛엔지니어링', height: 36 },
+      { text: '박영희 부장', height: 30 },
+      { text: 'TEL:', height: 16 },
+      { text: 'FAX:', height: 16 },
+      { text: 'H.P:', height: 16 },
+      { text: '02-1234-5678', height: 16 },
+      { text: '02-1234-5679', height: 16 },
+      { text: '010-9876-5432', height: 16 },
+    ],
+    expect: { company: '한빛엔지니어링', name: '박영희', phone: '02-1234-5678', fax: '02-1234-5679', mobile: '010-9876-5432', memo: '' },
+  },
+  {
+    name: '위치로 짝짓기: 번호 덩어리가 라벨 덩어리보다 먼저 인식됨',
+    lines: [
+      { text: '한빛엔지니어링', height: 36, left: 40, top: 30, right: 300, bottom: 66 },
+      { text: '박영희 부장', height: 30, left: 40, top: 90, right: 220, bottom: 120 },
+      { text: '02-1234-5678', height: 16, left: 110, top: 200, right: 260, bottom: 216 },
+      { text: '010-9876-5432', height: 16, left: 110, top: 224, right: 270, bottom: 240 },
+      { text: '02-1234-5679', height: 16, left: 110, top: 248, right: 260, bottom: 264 },
+      { text: 'TEL:', height: 16, left: 40, top: 200, right: 80, bottom: 216 },
+      { text: 'H.P:', height: 16, left: 40, top: 224, right: 80, bottom: 240 },
+      { text: 'FAX:', height: 16, left: 40, top: 248, right: 80, bottom: 264 },
+    ],
+    expect: { company: '한빛엔지니어링', name: '박영희', phone: '02-1234-5678', mobile: '010-9876-5432', fax: '02-1234-5679', memo: '' },
+  },
+  {
+    name: '위치로 짝짓기: 한 줄에 TEL/FAX 두 쌍',
+    lines: [
+      { text: 'FAX', height: 16, left: 240, top: 200, right: 280, bottom: 216 },
+      { text: 'TEL', height: 16, left: 40, top: 200, right: 75, bottom: 216 },
+      { text: '02-1234-5678', height: 16, left: 90, top: 200, right: 220, bottom: 216 },
+      { text: '02-1234-5679', height: 16, left: 290, top: 200, right: 420, bottom: 216 },
+    ],
+    expect: { phone: '02-1234-5678', fax: '02-1234-5679', memo: '' },
+  },
+  {
+    name: '번호 뒤에 라벨',
+    text: `02-1234-5678 (TEL)
+02-1234-5679 (FAX)
+010-9876-5432 H.P`,
+    expect: { phone: '02-1234-5678', fax: '02-1234-5679', mobile: '010-9876-5432' },
+  },
 ];
 
 const out = document.getElementById('out');

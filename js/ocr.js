@@ -112,7 +112,8 @@ async function recognizeTesseract(blob, onProgress) {
   const lines = (data.lines || []).map(l => {
     const hs = (l.words || []).map(w => w.bbox.y1 - w.bbox.y0).filter(h => h > 0);
     const height = hs.length ? hs.reduce((a, b) => a + b, 0) / hs.length : l.bbox.y1 - l.bbox.y0;
-    return { text: l.text.trim(), height };
+    const { x0: left, y0: top, x1: right, y1: bottom } = l.bbox;
+    return { text: l.text.trim(), height, left, top, right, bottom };
   });
   return { text: data.text || '', lines: lines.filter(l => l.text) };
 }
@@ -141,17 +142,20 @@ async function recognizeVision(blob, apiKey, onProgress) {
   return { text: full.text || '', lines: visionLines(full) };
 }
 
-// Vision 응답을 줄 단위로 재구성 (글자 크기 = 단어 상자 높이)
+// Vision 응답을 줄 단위로 재구성 (글자 크기 = 단어 상자 높이, 위치 = 단어 상자들을 합친 범위)
 function visionLines(full) {
   const lines = [];
-  let cur = { text: '', heights: [] };
+  let cur = { text: '', heights: [], xs: [], ys: [] };
   const flush = () => {
     const text = cur.text.trim();
     if (text) {
       const height = cur.heights.reduce((a, b) => a + b, 0) / cur.heights.length;
-      lines.push({ text, height });
+      const box = cur.xs.length
+        ? { left: Math.min(...cur.xs), top: Math.min(...cur.ys), right: Math.max(...cur.xs), bottom: Math.max(...cur.ys) }
+        : {};
+      lines.push({ text, height, ...box });
     }
-    cur = { text: '', heights: [] };
+    cur = { text: '', heights: [], xs: [], ys: [] };
   };
   const boxHeight = box => {
     const ys = (box?.vertices || []).map(v => v.y || 0);
@@ -162,6 +166,10 @@ function visionLines(full) {
       for (const para of block.paragraphs || []) {
         for (const word of para.words || []) {
           cur.heights.push(boxHeight(word.boundingBox));
+          for (const v of word.boundingBox?.vertices || []) {
+            cur.xs.push(v.x || 0);
+            cur.ys.push(v.y || 0);
+          }
           for (const sym of word.symbols || []) {
             cur.text += sym.text;
             const br = sym.property?.detectedBreak?.type;

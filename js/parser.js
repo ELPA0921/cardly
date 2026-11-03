@@ -41,7 +41,7 @@ const PHONE_RE = /(?<!\d)(?:\(?0\d{1,3}\)?[\s.\-)]{0,2}\d{3,4}[\s.\-]{0,2}\d{4}|
 const WEB_RE =
   /(?:https?:\/\/)?(?:www\.)?[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:co\.kr|or\.kr|go\.kr|ac\.kr|re\.kr|ne\.kr|com|net|org|kr|io|biz|info|co|me|ai|jp|cn)(?:\/[^\s]*)?(?![a-z0-9])/i;
 const LABEL_RE =
-  /(?:^|(?<=[\s|/·,]))(?:tel|phone|mobile|mob|cell|fax|e-?mail|web|homepage|website|url|h\.?p|c\.?p|direct|office|전화|휴대폰|핸드폰|휴대전화|팩스|이메일|메일|홈페이지|직통|대표번호|[TMFEDWHPCO])\s*[.:)\]]?(?=\s|$|[|/·,])/gi;
+  /(?:^|(?<=[\s|/·,]))(?:tel|tei|phone|mobile|mob|cell|fax|e-?mail|web|homepage|website|url|[hcm][.,]?p|direct|office|전화|휴대폰|핸드폰|휴대전화|팩스|이메일|메일|홈페이지|직통|대표번호|[TMFEDWHPCO])[\s.:)\]]*(?=\s|$|[|/·,])/gi;
 const PROVINCE_RE = /^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충청|충북|충남|전라|전북|전남|경상|경북|경남|제주)/;
 const ADDRESS_LABEL_RE = /^(주소|address|add|addr|a)\s*[.:)\]]?\s*/i;
 const HANGUL_RE = /[가-힣]/;
@@ -76,12 +76,85 @@ export function hyphenatePhone(raw) {
 // 저장용: 특수문자는 버리고 하이픈 규칙으로 다시 맞춤
 export const formatPhone = raw => hyphenatePhone(phoneDigits(raw));
 
+// 번호 종류 라벨. OCR이 점·띄어쓰기를 다르게 읽는 경우도 포함 (H.P / H. P / H,P / T E L / TEI / FAX.: 등)
+const PHONE_LABELS = [
+  ['fax', String.raw`f\s?a\s?x|f\s?x|f|팩\s?스|팩`],
+  ['mobile', String.raw`mobile\s?phone|cell\s?phone|hand\s?phone|[hcm]\s?[.,/·]?\s?p|mobile|mob|cell|m|휴\s?대\s?폰|핸\s?드\s?폰|휴대전화|모바일|휴대`],
+  ['phone', String.raw`t\s?e\s?[li1]|telephone|phone|office|direct|dir|t|o|d|전\s?화|사무실|직통|대표전화|대표번호|대표`],
+].map(([kind, label]) => ({
+  kind,
+  before: new RegExp(`(?:^|[^a-z])(?:${label})[\\s.:)\\]]*$`, 'i'),
+  after: new RegExp(`^[\\s(\\[]*(?:${label})(?![a-z])[\\s.:)\\]]*`, 'i'),
+  start: new RegExp(`^(${label})(?![a-z])([\\s.:)\\]|/·,]*)`, 'i'),
+}));
+
+// 번호 앞의 라벨: "TEL: 02-..."
 function phoneKind(before) {
   const b = before.slice(-16);
-  if (/(?:^|[^a-z])(f|fax|팩스|팩)\s*[.:)\]]?\s*$/i.test(b)) return 'fax';
-  if (/(?:^|[^a-z])(m|mobile|mob|cell|cellphone|h\.?p|c\.?p|휴대폰|핸드폰|휴대전화|모바일|휴대)\s*[.:)\]]?\s*$/i.test(b)) return 'mobile';
-  if (/(?:^|[^a-z])(t|tel|phone|office|o|d|direct|dir|전화|사무실|직통|대표|대표전화|대표번호)\s*[.:)\]]?\s*$/i.test(b)) return 'phone';
+  return PHONE_LABELS.find(p => p.before.test(b))?.kind || null;
+}
+
+// 번호 뒤의 라벨: "02-1234-5678 (TEL)". 괄호로 감쌌거나 줄 끝에 있을 때만 (다음 번호의 라벨과 헷갈리지 않게)
+function phoneKindAfter(after) {
+  for (const p of PHONE_LABELS) {
+    const m = after.match(p.after);
+    if (m && (/^\s*[(\[]/.test(after) || !/\d/.test(after.slice(m[0].length)))) return p.kind;
+  }
   return null;
+}
+
+// "TEL:" "FAX:" "H.P:" 처럼 라벨만 있는 줄 → 라벨 종류 목록. 라벨 열과 번호 열이 따로 인식된 명함용
+function labelOnlyKinds(text) {
+  const kinds = [];
+  let rest = text.trim();
+  while (rest) {
+    let hit = null;
+    for (const p of PHONE_LABELS) {
+      const m = rest.match(p.start);
+      if (m) {
+        hit = { kind: p.kind, m };
+        break;
+      }
+    }
+    if (!hit) return null;
+    // 한 글자 라벨(T, F, M...)은 "T." "F:" 처럼 문장부호가 붙었을 때만 (흩어진 글자 오인식 방지)
+    if (hit.m[1].replace(/[\s.,/·]/g, '').length < 2 && !/[.:]/.test(hit.m[2])) return null;
+    kinds.push(hit.kind);
+    rest = rest.slice(hit.m[0].length);
+  }
+  return kinds.length ? kinds : null;
+}
+
+// OCR 줄 위치 { left, top, right, bottom } (없으면 null)
+function boxOf(l) {
+  const { left, top, right, bottom } = l;
+  return [left, top, right, bottom].every(Number.isFinite) && right > left && bottom > top ? { left, top, right, bottom } : null;
+}
+
+// 위치 정보가 있으면 라벨만 있는 줄("TEL:")을 같은 높이에서 가장 가까운 오른쪽 번호 줄 앞에 붙입니다.
+// ML Kit 등은 라벨 열과 번호 열을 서로 다른 덩어리로 인식해서 순서만으로는 짝을 잃기 쉽습니다.
+function attachSideLabels(lines) {
+  const claimed = new Set();
+  for (const label of lines) {
+    // "TEL / FAX" 처럼 라벨이 여럿인 줄은 순서대로 짝짓는 쪽(pendingKinds)에 맡김
+    if (!label.box || labelOnlyKinds(label.text)?.length !== 1) continue;
+    const a = label.box;
+    const mid = (a.top + a.bottom) / 2;
+    let best = null;
+    for (const l of lines) {
+      if (l === label || !l.box || claimed.has(l) || !l.text.match(PHONE_RE)) continue;
+      const b = l.box;
+      if (b.left < a.right - (a.right - a.left) * 0.3) continue; // 오른쪽에 있어야 함
+      if (Math.abs((b.top + b.bottom) / 2 - mid) > Math.max(a.bottom - a.top, b.bottom - b.top) * 0.6) continue; // 같은 높이
+      const gap = b.left - a.right;
+      if (!best || gap < best.gap) best = { l, gap };
+    }
+    if (!best) continue;
+    best.l.text = label.text + ' ' + best.l.text;
+    claimed.add(best.l);
+    label.text = '';
+    label.used = true;
+  }
 }
 
 function cleanLine(text) {
@@ -162,8 +235,9 @@ export function parseCard(input) {
   };
   const source = input?.lines?.length ? input.lines : String(input?.text || '').split(/\r?\n/).map(text => ({ text }));
   const lines = source
-    .map((l, idx) => ({ text: joinSpacedHangul(cleanLine(l.text)), height: l.height || 0, idx, used: false }))
+    .map((l, idx) => ({ text: joinSpacedHangul(cleanLine(l.text)), height: l.height || 0, box: boxOf(l), idx, used: false }))
     .filter(l => l.text.length > 0);
+  attachSideLabels(lines);
 
   const heights = lines.map(l => l.height).filter(h => h > 0).sort((a, b) => a - b);
   const ctx = { median: heights.length ? heights[Math.floor(heights.length / 2)] : 0 };
@@ -180,28 +254,49 @@ export function parseCard(input) {
     l.contact = true;
   }
 
-  // 2) 전화번호 (라벨 T./M./F. 등으로 구분, 없으면 010 → 휴대폰)
+  // 2) 전화번호 (라벨 TEL/FAX/H.P 등으로 구분, 없으면 010 → 휴대폰)
+  //  strength 2: 라벨대로 / 1: TEL 라벨이지만 010 번호라 휴대폰으로 / 0: 라벨 없음
+  const numbers = [];
+  const pendingKinds = []; // 라벨만 있던 줄의 라벨 순서 (번호가 다른 줄로 인식된 경우)
   for (const l of lines) {
     let t = l.text
       .replace(/\+\s?82[\s.\-)]*\(?0?\)?\s*/g, '0')
       .replace(/(?<=\d[\s.\-]?)[Oo](?=[\d\s.\-])/g, '0')
       .replace(/(?<=\d[\s.\-]?)[lI|](?=\d)/g, '1');
     const matches = [...t.matchAll(PHONE_RE)];
-    if (!matches.length) continue;
+    if (!matches.length) {
+      const kinds = labelOnlyKinds(l.text);
+      if (kinds) {
+        pendingKinds.push(...kinds);
+        l.used = true;
+      }
+      continue;
+    }
     let prevEnd = 0;
-    for (const m of matches) {
+    matches.forEach((m, i) => {
       const d = digits(m[0]);
       const valid = /^1[5-8]\d{6}$/.test(d) || (/^0\d+$/.test(d) && d.length >= 9 && d.length <= 12);
-      if (!valid) continue;
-      const number = formatPhone(m[0]);
-      const kind = phoneKind(t.slice(prevEnd, m.index)) || (/^01[016789]/.test(d) ? 'mobile' : 'phone');
-      prevEnd = m.index + m[0].length;
-      if (!result[kind]) result[kind] = number;
-      else if (result[kind] !== number && ![result.mobile, result.phone, result.fax].includes(number)) extraNumbers.push(number);
-    }
+      if (!valid) return;
+      const end = m.index + m[0].length;
+      let kind =
+        phoneKind(t.slice(prevEnd, m.index)) || phoneKindAfter(t.slice(end, matches[i + 1]?.index ?? t.length)) || pendingKinds.shift();
+      prevEnd = end;
+      const isMobile = /^01[016789]/.test(d);
+      let strength = kind ? 2 : 0;
+      if (!kind) kind = isMobile ? 'mobile' : 'phone';
+      else if (kind === 'phone' && isMobile) [kind, strength] = ['mobile', 1];
+      numbers.push({ number: formatPhone(m[0]), kind, strength });
+    });
     t = t.replace(PHONE_RE, ' ');
     l.text = cleanLine(t);
     l.contact = true;
+  }
+  // 라벨이 확실한 번호부터 자리를 채움 (H.P 번호가 TEL 010 번호보다 휴대폰 칸 우선)
+  for (const { number, kind, strength } of [...numbers].sort((a, b) => b.strength - a.strength)) {
+    if (!result[kind]) result[kind] = number;
+    else if (result[kind] === number || [result.mobile, result.phone, result.fax].includes(number)) continue;
+    else if (strength === 1 && !result.phone) result.phone = number;
+    else extraNumbers.push(number);
   }
 
   // 3) 홈페이지
