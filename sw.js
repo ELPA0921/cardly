@@ -1,9 +1,9 @@
 // 오프라인에서도 앱 화면이 열리도록 앱 파일을 캐시합니다 (네트워크 우선).
-const CACHE = 'bc-shell-v2';
+const CACHE = 'bc-shell-v3';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/app.js', 'js/store.js', 'js/sync.js', 'js/drive.js', 'js/idb.js', 'js/ocr.js',
-  'js/parser.js', 'js/share.js', 'js/fields.js', 'js/icons.js', 'js/config.js',
+  'js/parser.js', 'js/share.js', 'js/fields.js', 'js/icons.js', 'js/config.js', 'js/scan.js',
 ];
 
 self.addEventListener('install', e => {

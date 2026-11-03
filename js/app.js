@@ -3,6 +3,7 @@ import * as sync from './sync.js';
 import * as drive from './drive.js';
 import * as idb from './idb.js';
 import { recognize, normalizeImage } from './ocr.js';
+import { detectCard, warpCard } from './scan.js';
 import { parseCard, chosung } from './parser.js';
 import { buildShareText, copyText, shareCardText, shareVCard, sharePhotos, downloadBlob } from './share.js';
 import { FIELDS, FIELD_KEYS, fieldLabel } from './fields.js';
@@ -133,6 +134,99 @@ async function promptDialog(title, value = '', placeholder = '') {
 function viewImage(url) {
   const el = openOverlay(`<img src="${url}" alt="명함 사진">`, { center: true, cls: 'viewer' });
   el.addEventListener('click', () => el.remove());
+}
+
+// 명함 테두리 맞추기: 자동으로 찾은 네 모서리를 보여 주고, 끌어서 조정한 뒤 반듯하게 펴서 잘라냅니다.
+// 반환: 잘라낸 Blob | 원본 Blob('자르지 않기') | null(취소)
+async function cropDialog(blob) {
+  const det = await detectCard(blob);
+  const corners = det.corners.map(p => ({ ...p }));
+  return new Promise(resolve => {
+    const el = openOverlay(`
+      <div class="cropper">
+        <div class="crop-bar">
+          <button class="icon-btn" data-c="cancel" aria-label="취소">${icon('x')}</button>
+          <h1>명함 테두리 맞추기</h1>
+        </div>
+        <div class="crop-stage">
+          <div class="crop-wrap">
+            <img src="${objectUrl(blob)}" alt="" draggable="false">
+            <svg class="crop-svg"><path class="crop-shade" fill-rule="evenodd"/><polygon class="crop-line"/></svg>
+            ${corners.map((_, i) => `<div class="crop-handle" data-k="${i}"></div>`).join('')}
+          </div>
+        </div>
+        <p class="crop-hint">${det.found ? '명함 테두리를 찾았어요. 모서리 점을 끌어서 더 정확히 맞출 수 있어요.' : '테두리를 찾지 못했어요. 네 점을 명함 모서리로 옮겨 주세요.'}</p>
+        <div class="crop-actions">
+          <button class="btn ghost" data-c="full">자르지 않기</button>
+          <button class="btn primary" data-c="ok">${icon('check')}확인</button>
+        </div>
+      </div>`, { cls: 'crop-overlay' });
+    const wrap = el.querySelector('.crop-wrap');
+    const img = wrap.querySelector('img');
+    const svg = wrap.querySelector('svg');
+    const handles = [...wrap.querySelectorAll('.crop-handle')];
+
+    const layout = () => {
+      const s = img.clientWidth / det.width;
+      if (!s) return;
+      const pts = corners.map(p => [p.x * s, p.y * s]);
+      svg.setAttribute('viewBox', `0 0 ${img.clientWidth} ${img.clientHeight}`);
+      svg.querySelector('.crop-line').setAttribute('points', pts.map(p => p.join(',')).join(' '));
+      svg.querySelector('.crop-shade').setAttribute('d',
+        `M0 0H${img.clientWidth}V${img.clientHeight}H0Z M${pts.map(p => p.join(' ')).join(' L')}Z`);
+      handles.forEach((hd, i) => (hd.style.transform = `translate(${pts[i][0]}px, ${pts[i][1]}px)`));
+    };
+    img.onload = layout;
+    if (img.complete) layout();
+    window.addEventListener('resize', layout);
+
+    let dragging = null;
+    wrap.addEventListener('pointerdown', e => {
+      const hd = e.target.closest('.crop-handle');
+      if (!hd) return;
+      dragging = +hd.dataset.k;
+      hd.setPointerCapture(e.pointerId);
+      hd.classList.add('active');
+      e.preventDefault();
+    });
+    wrap.addEventListener('pointermove', e => {
+      if (dragging === null) return;
+      const r = img.getBoundingClientRect();
+      const s = r.width / det.width;
+      corners[dragging] = {
+        x: Math.max(0, Math.min(det.width, (e.clientX - r.left) / s)),
+        y: Math.max(0, Math.min(det.height, (e.clientY - r.top) / s)),
+      };
+      layout();
+    });
+    const endDrag = () => {
+      handles.forEach(hd => hd.classList.remove('active'));
+      dragging = null;
+    };
+    wrap.addEventListener('pointerup', endDrag);
+    wrap.addEventListener('pointercancel', endDrag);
+
+    const finish = value => {
+      window.removeEventListener('resize', layout);
+      el.remove();
+      resolve(value);
+    };
+    el.addEventListener('click', async e => {
+      const c = e.target.closest('[data-c]')?.dataset.c;
+      if (c === 'cancel') finish(null);
+      else if (c === 'full') finish(blob);
+      else if (c === 'ok') {
+        e.target.closest('button').disabled = true;
+        el.querySelector('.crop-hint').textContent = '반듯하게 펴는 중…';
+        try {
+          finish(await warpCard(blob, corners));
+        } catch (err) {
+          toast('자르기에 실패했습니다: ' + err.message, 'error');
+          finish(blob);
+        }
+      }
+    });
+  });
 }
 
 // ---------- 라우팅 ----------
@@ -400,7 +494,8 @@ async function onImagePicked(file) {
   capture = null;
   if (!file) return;
   try {
-    const blob = await normalizeImage(file);
+    const blob = await cropDialog(await normalizeImage(file));
+    if (!blob) return;
     const photo = { id: store.uid(), fileId: null, blob, changed: true };
     if (target.mode === 'new' || !draft) {
       draft = newDraft(null, { mine: !!target.mine });
@@ -515,6 +610,7 @@ function renderEditorPhoto() {
     <div class="photo-box" data-action="view-draft-photo">${p.blob ? `<img src="${objectUrl(p.blob)}" alt="명함 ${sideLabel(d.view)}">` : '사진 불러오는 중…'}</div>
     <div class="photo-actions">
       ${d.photos.length > 1 && d.view !== d.mainPhoto ? `<button class="btn small primary" data-action="photo-main">${icon('star')}대표로 설정</button>` : ''}
+      <button class="btn small" data-action="crop">${icon('crop')}자르기</button>
       <button class="btn small" data-action="rotate">${icon('rotate')}회전</button>
       <button class="btn small" data-action="photo-replace">${icon('camera')}다시 찍기</button>
       <button class="btn small" data-action="rerun-ocr">${icon('scan')}다시 인식</button>
@@ -648,6 +744,17 @@ async function assignLine(i) {
   if ((key === 'address' || key === 'memo') && cur && !cur.includes(value)) value = `${cur}${key === 'memo' ? '\n' : ' '}${value}`;
   setDraftField(key, value);
   draft.touched.add(key);
+}
+
+// 회전/자르기한 사진은 새 사진으로 취급 (Drive의 예전 파일은 저장할 때 정리)
+function replaceDraftPhoto(p, blob) {
+  const old = { id: p.id, fileId: p.fileId };
+  if (!p.changed) draft.removed.push(old);
+  Object.assign(p, { id: p.changed ? p.id : store.uid(), fileId: null, blob, changed: true });
+  if (p.id !== old.id) {
+    draft.ocr[p.id] = draft.ocr[old.id];
+    for (const k in draft.ocrFilled) if (draft.ocrFilled[k] === old.id) draft.ocrFilled[k] = p.id;
+  }
 }
 
 function removeDraftPhoto() {
@@ -1164,18 +1271,14 @@ document.addEventListener('click', async e => {
       draft.mainPhoto = draft.view;
       toast(`${sideLabel(draft.view)}을 대표 사진으로 정했습니다.`);
       return renderEditorPhoto();
-    case 'rotate': {
-      const p = draft?.photos[draft.view];
+    case 'rotate':
+    case 'crop': {
+      const d = draft;
+      const p = d?.photos[d.view];
       if (!p?.blob) return;
-      const old = { id: p.id, fileId: p.fileId };
-      const blob = await normalizeImage(p.blob, { rotate: 90 });
-      // 회전한 사진은 새 사진으로 취급 (Drive의 예전 파일은 저장 시 정리)
-      if (!p.changed) draft.removed.push(old);
-      Object.assign(p, { id: p.changed ? p.id : store.uid(), fileId: null, blob, changed: true });
-      if (p.id !== old.id) {
-        draft.ocr[p.id] = draft.ocr[old.id];
-        for (const k in draft.ocrFilled) if (draft.ocrFilled[k] === old.id) draft.ocrFilled[k] = p.id;
-      }
+      const blob = action === 'rotate' ? await normalizeImage(p.blob, { rotate: 90 }) : await cropDialog(p.blob);
+      if (!blob || blob === p.blob || draft !== d) return;
+      replaceDraftPhoto(p, blob);
       renderEditorPhoto();
       return runOcr(p.id);
     }

@@ -180,11 +180,13 @@ export function resetAll() {
 // ---------- 설정 ----------
 export function getSettings() {
   const s = readJson(SETTINGS_KEY, {});
+  const visionApiKey = s.visionApiKey || DEFAULT_CONFIG.visionApiKey;
   return {
-    ocrEngine: 'tesseract',
     ...s,
+    // Vision 키가 있으면 기본으로 Vision 사용 (설정에서 직접 고른 값이 우선)
+    ocrEngine: s.ocrEngine || (visionApiKey ? 'vision' : 'tesseract'),
     googleClientId: s.googleClientId || DEFAULT_CONFIG.googleClientId,
-    visionApiKey: s.visionApiKey || DEFAULT_CONFIG.visionApiKey,
+    visionApiKey,
     driveFolderName: DEFAULT_CONFIG.driveFolderName,
   };
 }
