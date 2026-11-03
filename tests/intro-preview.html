@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>시작 화면 미리보기</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script>
+    // ?theme=dark 로 다크 모드 확인
+    var t = new URLSearchParams(location.search).get('theme');
+    if (t) document.documentElement.dataset.theme = t;
+  </script>
+</head>
+<body>
+  <!-- index.html의 시작 화면과 같은 구조 (사라지지 않게 고정) -->
+  <div id="intro" class="intro">
+    <div class="intro-glow"></div>
+    <div class="intro-logo"><img src="../icons/logo.png" alt=""><span class="intro-shine"></span></div>
+    <div class="wordmark intro-word"></div>
+    <p class="intro-tag">명함을 찍으면, 알아서 정리되는 명함첩</p>
+  </div>
+  <button onclick="var e=document.getElementById('intro'),c=e.cloneNode(true);e.replaceWith(c)" style="position:fixed;bottom:12px;left:12px;z-index:2000">다시 재생</button>
+</body>
+</html>

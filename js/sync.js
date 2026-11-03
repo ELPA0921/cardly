@@ -4,6 +4,17 @@ import * as drive from './drive.js';
 import * as idb from './idb.js';
 import { isNative } from './native.js';
 import { AUTH_VERSION } from './config.js';
+import { shortCompany } from './contactRules.js';
+
+// 예전에 쓰던 Drive 폴더 이름 (있으면 '카들리'로 이름을 바꿔 이어 씀)
+const LEGACY_FOLDER_NAMES = ['명함관리'];
+
+// Drive에 올리는 명함 사진 파일 이름: 카들리_업체명_이름_01.jpg (01 앞면, 02 뒷면)
+const cleanPart = s => String(s || '').replace(/[\\/:*?"<>|_]/g, ' ').replace(/\s+/g, ' ').trim();
+export function photoFileName(card, index) {
+  const parts = ['카들리', cleanPart(shortCompany(card.company)), cleanPart(card.name)].filter(Boolean);
+  return `${parts.join('_')}_${String(index + 1).padStart(2, '0')}.jpg`;
+}
 
 // state: local(미연결) | auth(재연결 필요) | syncing | synced | offline | error
 let status = { state: 'local', message: '', lastSync: store.getSyncMeta().lastSync || 0 };
@@ -83,9 +94,13 @@ export async function syncNow() {
 
     let folderId = meta.folderId;
     if (!folderId || !(await drive.folderExists(folderId))) {
-      folderId = await drive.ensureFolder(settings.driveFolderName);
-      store.setSyncMeta({ folderId, dataFileId: null });
+      folderId = await drive.ensureFolder(settings.driveFolderName, LEGACY_FOLDER_NAMES);
+      store.setSyncMeta({ folderId, dataFileId: null, folderName: settings.driveFolderName });
       meta = store.getSyncMeta();
+    } else if (meta.folderName !== settings.driveFolderName) {
+      // 예전 폴더 이름('명함관리')을 '카들리'로 바꿈
+      await drive.renameFile(folderId, settings.driveFolderName);
+      store.setSyncMeta({ folderName: settings.driveFolderName });
     }
 
     let fileId = meta.dataFileId || (await drive.findDataFile(folderId))?.id || null;
@@ -109,19 +124,32 @@ export async function syncNow() {
         }
         continue;
       }
-      if (!photos.some(p => !p.fileId)) continue;
+      // 새 사진은 올리고, 이미 올라간 사진은 이름 규칙(카들리_업체명_이름_01)에 맞게 이름을 맞춤
+      let changed = false;
       const next = [];
-      for (const p of photos) {
-        const cached = !p.fileId && (await idb.getImage(p.id));
-        if (!cached?.blob) {
-          next.push(p);
-          continue;
-        }
-        const fileId = await drive.createFile(folderId, `card_${p.id}.jpg`, cached.blob, 'image/jpeg');
-        await idb.putImage(p.id, { blob: cached.blob, fileId });
-        next.push({ ...p, fileId });
+      for (const [i, p] of photos.entries()) {
+        const name = photoFileName(c, i);
+        if (!p.fileId) {
+          const cached = await idb.getImage(p.id);
+          if (!cached?.blob) {
+            next.push(p);
+            continue;
+          }
+          const fileId = await drive.createFile(folderId, name, cached.blob, 'image/jpeg');
+          await idb.putImage(p.id, { blob: cached.blob, fileId });
+          next.push({ ...p, fileId, name });
+          changed = true;
+        } else if (p.name !== name) {
+          try {
+            await drive.renameFile(p.fileId, name);
+          } catch (e) {
+            if (e.status !== 404) throw e;
+          }
+          next.push({ ...p, name });
+          changed = true;
+        } else next.push(p);
       }
-      store.patchCard(c.id, { photos: next }, 'sync');
+      if (changed) store.patchCard(c.id, { photos: next }, 'sync');
     }
     for (const id of store.pendingDeletes()) {
       await drive.trashFile(id);

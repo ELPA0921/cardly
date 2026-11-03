@@ -31,6 +31,8 @@
     window.fetch = async (url, opts = {}) => {
       const u = String(url);
       if (!u.includes('googleapis.com')) return realFetch(url, opts);
+      let meta = ''; try { if (opts.body instanceof FormData) meta = await opts.body.get('metadata').text(); else if (typeof opts.body === 'string') meta = opts.body; } catch (e) {}
+      (window.__fetchLog ||= []).push([opts.method || 'GET', u.replace('https://www.googleapis.com', ''), meta]);
       const json = obj => new Response(JSON.stringify(obj), { status: 200, headers: { 'Content-Type': 'application/json' } });
       if (u.includes('/about')) return json({ user: { displayName: '테스트 사용자', emailAddress: 'tester@example.com' } });
       if (u.includes('/files?') && (!opts.method || opts.method === 'GET')) return json({ files: [] });

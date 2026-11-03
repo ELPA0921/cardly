@@ -296,11 +296,21 @@ function renderLogin() {
       <p class="login-sub">명함을 찍으면 자동으로 정리되는<br>나만의 명함첩</p>
       <button class="btn google-btn" data-action="login">${GOOGLE_G}Google 계정으로 로그인</button>
       <p class="login-error" id="login-error"></p>
-      <p class="small-note">명함과 사진은 로그인한 Google 계정의 Drive<br>'명함관리' 폴더에 저장되어, 휴대폰을 바꿔도 그대로 불러옵니다.</p>
+      <p class="small-note">명함과 사진은 로그인한 Google 계정의 Drive<br>「${esc(store.getSettings().driveFolderName)}」 폴더에 저장되어, 휴대폰을 바꿔도 그대로 불러옵니다.</p>
     </main>`;
 }
 
 async function loginGoogle() {
+  // 처음 로그인할 때: Drive에 '카들리' 폴더를 만들어 그 안에만 저장한다는 점을 먼저 알리고 동의를 받음
+  if (!isLoggedIn()) {
+    const folder = store.getSettings().driveFolderName;
+    const ok = await dialog({
+      title: 'Google 계정으로 로그인',
+      message: `카들리는 내 Google Drive에 「${folder}」 폴더를 자동으로 만들고, 명함 정보와 사진을 이 폴더 안에만 저장합니다.\n\n· 카들리는 자신이 만든 파일만 볼 수 있고, Drive의 다른 파일에는 접근하지 않습니다.\n· 다음 화면에서 Google 계정을 고르고 권한을 허용해 주세요.`,
+      buttons: [{ label: '동의하고 로그인', value: true, style: 'primary' }, { label: '취소', value: false }],
+    });
+    if (!ok) return;
+  }
   const btn = document.querySelector('[data-action="login"]');
   if (btn) btn.disabled = true;
   try {

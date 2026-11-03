@@ -136,9 +136,19 @@ async function findOne(query) {
   return (await res.json()).files?.[0] || null;
 }
 
-export async function ensureFolder(name) {
-  const found = await findOne(`name='${q(name)}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+// 앱 폴더 찾기/만들기. 예전 이름(legacyNames)의 폴더가 있으면 새 이름으로 바꿔서 그대로 이어 씁니다.
+export async function ensureFolder(name, legacyNames = []) {
+  const found = await findOne(`name='${q(name)}' and mimeType='${FOLDER_MIME}' and trashed=false`);
   if (found) return found.id;
+  for (const old of legacyNames) {
+    const legacy = await findOne(`name='${q(old)}' and mimeType='${FOLDER_MIME}' and trashed=false`);
+    if (legacy) {
+      await renameFile(legacy.id, name);
+      return legacy.id;
+    }
+  }
   const res = await gfetch(`${API}/files?fields=id`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -178,6 +188,19 @@ export async function updateFile(fileId, blob) {
     method: 'PATCH',
     headers: { 'Content-Type': blob.type || 'application/octet-stream' },
     body: blob,
+  });
+}
+
+export async function getName(fileId) {
+  const res = await gfetch(`${API}/files/${fileId}?fields=name`);
+  return (await res.json()).name;
+}
+
+export async function renameFile(fileId, name) {
+  await gfetch(`${API}/files/${fileId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
   });
 }
 

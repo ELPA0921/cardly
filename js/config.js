@@ -8,11 +8,11 @@ export const DEFAULT_CONFIG = {
   // 공개 저장소에 키가 올라가지 않도록 여기는 비워 두고, 앱 '설정'에서 입력하세요.
   // 설정에서 입력한 키는 내 Google Drive 데이터에 함께 저장되어 다른 기기에도 자동으로 적용됩니다.
   visionApiKey: '',
-  // Google Drive에 만들어질 폴더 이름
-  driveFolderName: '명함관리',
+  // Google Drive에 만들어질 폴더 이름 (예전 '명함관리' 폴더는 자동으로 이 이름으로 바뀜)
+  driveFolderName: '카들리',
 };
 
-export const APP_VERSION = '0.8.1';
+export const APP_VERSION = '0.9.0';
 
 // 로그인 방식이 바뀌어 업데이트 후 다시 로그인해야 할 때만 이 숫자를 올립니다.
 // (올리면 기존 사용자는 자동으로 로그아웃되고 로그인 화면이 나옵니다. 명함 데이터는 지워지지 않습니다.)

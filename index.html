@@ -21,6 +21,26 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <!-- 앱 시작 화면 (앱에서만, 약 1.7초 / 누르면 바로 넘어감) -->
+  <div id="intro" class="intro" aria-hidden="true">
+    <div class="intro-glow"></div>
+    <div class="intro-logo"><img src="icons/logo.png" alt=""><span class="intro-shine"></span></div>
+    <div class="wordmark intro-word"></div>
+    <p class="intro-tag">명함을 찍으면, 알아서 정리되는 명함첩</p>
+  </div>
+  <script>
+    (function () {
+      var el = document.getElementById('intro');
+      if (!window.Capacitor || !window.Capacitor.isNativePlatform || !window.Capacitor.isNativePlatform()) return el.remove();
+      var hide = function () {
+        if (!el.parentNode) return;
+        el.classList.add('hide');
+        setTimeout(function () { el.remove(); }, 500);
+      };
+      el.addEventListener('click', hide);
+      setTimeout(hide, 1700);
+    })();
+  </script>
   <div id="app" class="app"></div>
 
   <input type="file" id="file-camera" accept="image/*" capture="environment" hidden>
