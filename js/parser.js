@@ -1,6 +1,7 @@
 // OCR 텍스트 → 명함 항목(이름, 회사, 직책, 번호 등) 추출
 // 정답을 보장할 수는 없으므로 편집 화면에서 사용자가 쉽게 고칠 수 있게 하는 것이 전제입니다.
 // 입력: { text, lines: [{ text, height }] }  (height가 있으면 글자 크기를 이름/회사 판단에 활용)
+import { hanjaReading } from './hanja.js';
 
 const TITLES_KO = [
   '대표이사', '대표변호사', '대표', '회장', '부회장', '사장', '부사장', '전무이사', '전무', '상무이사', '상무',
@@ -37,14 +38,18 @@ const NAME_STOPWORDS = new Set([
 const FREE_MAIL = new Set(['gmail', 'naver', 'daum', 'hanmail', 'kakao', 'hotmail', 'outlook', 'yahoo', 'nate', 'icloud', 'me', 'live']);
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-const PHONE_RE = /(?<!\d)(?:\(?0\d{1,3}\)?[\s.\-)]{0,2}\d{3,4}[\s.\-]{0,2}\d{4}|1[5-8]\d{2}[\s.\-]\d{4})(?!\d)/g;
+const PHONE_RE = /(?<!\d)(?:\(?0\d{1,3}\)?[\s.\-)]{0,3}\d{3,4}[\s.\-]{0,3}\d{4}|1[5-8]\d{2}[\s.\-]\d{4})(?!\d)/g;
 const WEB_RE =
   /(?:https?:\/\/)?(?:www\.)?[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:co\.kr|or\.kr|go\.kr|ac\.kr|re\.kr|ne\.kr|com|net|org|kr|io|biz|info|co|me|ai|jp|cn)(?:\/[^\s]*)?(?![a-z0-9])/i;
 const LABEL_RE =
-  /(?:^|(?<=[\s|/·,]))(?:tel|tei|phone|mobile|mob|cell|fax|e-?mail|web|homepage|website|url|[hcm][.,]?p|direct|office|전화|휴대폰|핸드폰|휴대전화|팩스|이메일|메일|홈페이지|직통|대표번호|[TMFEDWHPCO])[\s.:)\]]*(?=\s|$|[|/·,])/gi;
+  /(?:^|(?<=[\s|/·,]))(?:tel|tei|phone|mobile|mob|cell|fax|e-?mail|web|homepage|website|url|[hcm][.,·ㆍ・•∙-]?p|direct|office|전화|휴대폰|핸드폰|휴대전화|팩스|이메일|메일|홈페이지|직통|대표번호|[TMFEDWHPCO])[\s.:)\]]*(?=\s|$|[|/·,])/gi;
 const PROVINCE_RE = /^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충청|충북|충남|전라|전북|전남|경상|경북|경남|제주)/;
 const ADDRESS_LABEL_RE = /^(주소|address|add|addr|a)\s*[.:)\]]?\s*/i;
 const HANGUL_RE = /[가-힣]/;
+const HANJA_RE = /[㐀-䶿一-鿿豈-﫿]/;
+const HANJA_WORD_RE = /[㐀-䶿一-鿿豈-﫿]+/g;
+// 金으로 시작해도 성씨(김)가 아닌 낱말
+const GEUM_WORDS = /^금(융|속|고|형|은|광|강|액|리)/;
 
 const onlyHangul = s => /^[가-힣]+$/.test(s);
 const digits = s => s.replace(/\D/g, '');
@@ -79,7 +84,7 @@ export const formatPhone = raw => hyphenatePhone(phoneDigits(raw));
 // 번호 종류 라벨. OCR이 점·띄어쓰기를 다르게 읽는 경우도 포함 (H.P / H. P / H,P / T E L / TEI / FAX.: 등)
 const PHONE_LABELS = [
   ['fax', String.raw`f\s?a\s?x|f\s?x|f|팩\s?스|팩`],
-  ['mobile', String.raw`mobile\s?phone|cell\s?phone|hand\s?phone|[hcm]\s?[.,/·]?\s?p|mobile|mob|cell|m|휴\s?대\s?폰|핸\s?드\s?폰|휴대전화|모바일|휴대`],
+  ['mobile', String.raw`mobile\s?phone|cell\s?phone|hand\s?phone|[hcm]\s?[.,/·ㆍ・•∙-]?\s?p|mobile|mob|cell|m|휴\s?대\s?폰|핸\s?드\s?폰|휴대전화|모바일|휴대`],
   ['phone', String.raw`t\s?e\s?[li1]|telephone|phone|office|direct|dir|t|o|d|전\s?화|사무실|직통|대표전화|대표번호|대표`],
 ].map(([kind, label]) => ({
   kind,
@@ -107,6 +112,7 @@ function phoneKindAfter(after) {
 function labelOnlyKinds(text) {
   const kinds = [];
   let rest = text.trim();
+  if (koTitleOf(rest.replace(/[\s.:)\]]+$/, ''))) return null; // "대표"만 있는 줄은 직책
   while (rest) {
     let hit = null;
     for (const p of PHONE_LABELS) {
@@ -166,13 +172,13 @@ function cleanLine(text) {
     .trim();
 }
 
-// "홍 길 동" 처럼 한 글자씩 띄어 인식된 한글을 붙입니다.
+// "홍 길 동" / "金 道 吉" 처럼 한 글자씩 띄어 인식된 한글·한자를 붙입니다.
 function joinSpacedHangul(text) {
   const tokens = text.split(' ');
   const out = [];
   for (let i = 0; i < tokens.length; ) {
     let j = i;
-    while (j < tokens.length && /^[가-힣]$/.test(tokens[j])) j++;
+    while (j < tokens.length && tokens[j].length === 1 && (HANGUL_RE.test(tokens[j]) || HANJA_RE.test(tokens[j]))) j++;
     if (j - i >= 2 && j - i <= 4) {
       out.push(tokens.slice(i, j).join(''));
       i = j;
@@ -184,6 +190,29 @@ function joinSpacedHangul(text) {
     }
   }
   return out.join(' ');
+}
+
+// 두음법칙: 낱말 첫 글자의 ㄹ·ㄴ 바꿈 (李 리→이, 林 림→임, 盧 로→노, 女 녀→여)
+function initialSound(syl) {
+  const code = syl.charCodeAt(0) - 0xac00;
+  if (!(code >= 0 && code < 11172)) return syl;
+  const cho = Math.floor(code / 588);
+  const iotized = [2, 6, 7, 12, 17, 20].includes(Math.floor((code % 588) / 28)); // ㅑㅕㅖㅛㅠㅣ
+  const next = cho === 5 ? (iotized ? 11 : 2) : cho === 2 && iotized ? 11 : cho; // ㄹ→ㅇ/ㄴ, ㄴ→ㅇ
+  return String.fromCharCode(0xac00 + next * 588 + (code % 588));
+}
+
+// 한자를 한글 음으로: 代表 → 대표, 金東植 → 김동식 (이름 첫 글자 金은 성씨 '김'으로). 표에 없는 글자는 그대로 둠
+function hanjaToHangul(text) {
+  if (!HANJA_RE.test(text)) return text;
+  return text.replace(HANJA_WORD_RE, word => {
+    const chars = [...word];
+    const read = chars.map(c => hanjaReading(c) || c);
+    read[0] = initialSound(read[0]);
+    const hangul = read.join('');
+    if (chars[0] === '金' && chars.length >= 2 && chars.length <= 4 && !GEUM_WORDS.test(hangul)) return '김' + hangul.slice(1);
+    return hangul;
+  });
 }
 
 const isLeftoverJunk = text => {
@@ -235,7 +264,7 @@ export function parseCard(input) {
   };
   const source = input?.lines?.length ? input.lines : String(input?.text || '').split(/\r?\n/).map(text => ({ text }));
   const lines = source
-    .map((l, idx) => ({ text: joinSpacedHangul(cleanLine(l.text)), height: l.height || 0, box: boxOf(l), idx, used: false }))
+    .map((l, idx) => ({ text: hanjaToHangul(joinSpacedHangul(cleanLine(l.text))), height: l.height || 0, box: boxOf(l), idx, used: false }))
     .filter(l => l.text.length > 0);
   attachSideLabels(lines);
 
@@ -260,9 +289,14 @@ export function parseCard(input) {
   const pendingKinds = []; // 라벨만 있던 줄의 라벨 순서 (번호가 다른 줄로 인식된 경우)
   for (const l of lines) {
     let t = l.text
+      .replace(/[‐‑‒–—―−－ー]+/g, '-')
+      .replace(/-{2,}/g, '-')
       .replace(/\+\s?82[\s.\-)]*\(?0?\)?\s*/g, '0')
       .replace(/(?<=\d[\s.\-]?)[Oo](?=[\d\s.\-])/g, '0')
-      .replace(/(?<=\d[\s.\-]?)[lI|](?=\d)/g, '1');
+      .replace(/(?<=\d[\s.\-]?)[lI|](?=\d)/g, '1')
+      // 글자 간격을 넓혀 인쇄한 번호: "555-1 2 0 3" → "555-1203"
+      .replace(/(?<!\d)\d(?: \d){2,}(?!\d)/g, m => m.replace(/ /g, ''))
+      .replace(/(?<=-\s?)\d(?:\s?\d){3}(?!\s?\d)/g, m => m.replace(/\s/g, ''));
     const matches = [...t.matchAll(PHONE_RE)];
     if (!matches.length) {
       const kinds = labelOnlyKinds(l.text);
@@ -344,8 +378,11 @@ export function parseCard(input) {
     let address = addrLine.text.replace(ADDRESS_LABEL_RE, '');
     addrLine.used = true;
     const pos = lines.indexOf(addrLine);
-    const next = lines[pos + 1];
-    if (next && !next.used && /(\d+\s*층|\d+\s*호|빌딩|타워|센터|플라자|오피스|B\/D|\(우\)|^\(.*\)$|\b\d{5}\b)/.test(next.text) && !KO_COMPANY_STRONG.test(next.text)) {
+    // 이어지는 줄(도로명 주소, 건물·호수)은 두 줄까지 붙임
+    for (let k = pos + 1; k <= pos + 2; k++) {
+      const next = lines[k];
+      if (!next || next.used || KO_COMPANY_STRONG.test(next.text)) break;
+      if (!/(\d+\s*층|\d+\s*호|빌딩|타워|센터|센타|플라자|오피스|B\/D|\(우\)|^\(.*\)$|\b\d{5}\b|[가-힣\d]+(로|길)\s*\d)/.test(next.text)) break;
       address += ' ' + next.text;
       next.used = true;
     }
