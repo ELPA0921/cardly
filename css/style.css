@@ -188,6 +188,42 @@ mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: i
 }
 .fab .icon { width: 22px; height: 22px; }
 
+/* 내 명함 배너 */
+.my-card-slot { padding: 0 16px; }
+.my-card-slot:empty { display: none; }
+.my-card {
+  width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 14px; margin-bottom: 12px; border-radius: var(--radius); cursor: pointer;
+  background: linear-gradient(135deg, var(--primary-weak), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.my-card.add { background: var(--surface); border-style: dashed; color: var(--text-2); }
+.my-card .grow { flex: 1; min-width: 0; }
+.my-card strong { display: block; font-size: 16px; }
+.my-card small { display: block; font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.my-card > .icon { color: var(--text-3); }
+.my-card .avatar .icon { width: 22px; height: 22px; }
+.badge {
+  display: inline-block; font-size: 11px; font-weight: 700; color: var(--primary);
+  background: var(--primary-weak); border-radius: 6px; padding: 1px 6px; margin-bottom: 2px;
+}
+.send-mine { margin: 4px 0 16px; min-height: 50px; font-size: 16px; }
+.stack { display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto; }
+
+/* 앞면 / 뒷면 선택 */
+.seg-row { display: flex; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; }
+.seg-row.center { justify-content: center; margin: 10px 0 0; }
+.seg {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 34px; padding: 0 12px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: 13.5px; font-weight: 600; color: var(--text-2);
+}
+.seg.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+.seg.add { border-style: dashed; background: transparent; }
+.seg .icon { width: 15px; height: 15px; }
+.main-mark { font-size: 11.5px; color: #f5a623; font-weight: 700; }
+
 /* ---------- 상세 ---------- */
 .detail { padding: 0 16px; }
 .photo-box {

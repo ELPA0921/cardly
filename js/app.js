@@ -4,7 +4,7 @@ import * as drive from './drive.js';
 import * as idb from './idb.js';
 import { recognize, normalizeImage } from './ocr.js';
 import { parseCard, chosung } from './parser.js';
-import { buildShareText, copyText, shareCardText, shareVCard, downloadBlob } from './share.js';
+import { buildShareText, copyText, shareCardText, shareVCard, sharePhotos, downloadBlob } from './share.js';
 import { FIELDS, FIELD_KEYS, fieldLabel } from './fields.js';
 import { icon } from './icons.js';
 import { APP_VERSION } from './config.js';
@@ -13,9 +13,11 @@ const $app = document.getElementById('app');
 const $overlay = document.getElementById('overlay-root');
 const $toast = document.getElementById('toast-root');
 
+const MAX_PHOTOS = 2;
 const ui = { filter: 'all', query: '', sort: 'recent', ...store.getUiPrefs() };
 ui.query = '';
 let draft = null; // 편집 중인 명함
+let capture = null; // 사진 선택 후 할 일 { mode: 'new' | 'add' | 'replace', mine }
 let imageUrls = []; // 해제할 objectURL
 
 // ---------- 유틸 ----------
@@ -39,6 +41,7 @@ const releaseUrls = () => {
   imageUrls.forEach(u => URL.revokeObjectURL(u));
   imageUrls = [];
 };
+const sideLabel = i => (i === 0 ? '앞면' : '뒷면');
 
 function toast(message, type = '') {
   const el = document.createElement('div');
@@ -49,6 +52,7 @@ function toast(message, type = '') {
 }
 
 function cardColor(card) {
+  if (card.isMine) return 'var(--primary)';
   const g = card.groupIds?.map(store.getGroup).find(Boolean);
   if (g) return g.color;
   const palette = store.GROUP_COLORS;
@@ -171,6 +175,7 @@ function render() {
   if (view === 'card') return renderDetail(id);
   if (view === 'edit') return renderEditor(id);
   if (view === 'new') return renderEditor(null);
+  if (view === 'me') return renderMyCard();
   if (view === 'groups') return renderGroups();
   if (view === 'settings') return renderSettings();
   return renderList();
@@ -244,6 +249,25 @@ function filteredCards() {
   return list;
 }
 
+function myCardBanner() {
+  const mine = store.getMyCard();
+  if (!mine) {
+    return `
+      <button class="my-card add" data-action="nav" data-to="#/me">
+        <div class="avatar" style="--c:var(--primary)">${icon('user')}</div>
+        <div class="grow"><strong>내 명함 등록하기</strong><small>등록해 두면 언제든 바로 보낼 수 있어요</small></div>
+        ${icon('chevron')}
+      </button>`;
+  }
+  const sub = [mine.company, mine.title].filter(Boolean).join(' · ');
+  return `
+    <div class="my-card" data-action="open" data-id="${mine.id}">
+      ${avatar(mine)}
+      <div class="grow"><span class="badge">내 명함</span><strong>${esc(mine.name || '(이름 없음)')}</strong>${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+      <button class="btn small primary" data-action="share" data-id="${mine.id}">${icon('share')}보내기</button>
+    </div>`;
+}
+
 function renderList() {
   const all = store.cards();
   const groups = store.groups();
@@ -278,6 +302,7 @@ function renderList() {
         </select>
       </div>
     </div>
+    <div id="my-card-slot" class="my-card-slot"></div>
     <main class="card-list" id="card-list"></main>
     <button class="fab" data-action="add">${icon('camera')}<span>명함 추가</span></button>`;
   renderListItems();
@@ -286,6 +311,8 @@ function renderList() {
 function renderListItems() {
   const box = document.getElementById('card-list');
   if (!box) return;
+  const slot = document.getElementById('my-card-slot');
+  slot.innerHTML = ui.filter === 'all' && !ui.query.trim() ? myCardBanner() : '';
   const list = filteredCards();
   document.getElementById('list-count').textContent = `${list.length}개`;
   if (!store.cards().length) {
@@ -319,60 +346,79 @@ function renderListItems() {
   }).join('');
 }
 
-// ---------- 명함 추가 ----------
-async function addCard() {
+// ---------- 명함 추가 / 사진 선택 ----------
+function pickPhoto(source, target) {
+  capture = target;
+  document.getElementById(source === 'gallery' ? 'file-gallery' : 'file-camera').click();
+}
+
+async function addCard({ mine = false } = {}) {
   const choice = await sheet({
-    title: '명함 추가',
+    title: mine ? '내 명함 등록' : '명함 추가',
     items: [
       { label: '카메라로 촬영', desc: '명함을 찍으면 자동으로 읽어옵니다', icon: 'camera', value: 'camera' },
       { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
       { label: '직접 입력', icon: 'edit', value: 'manual' },
     ],
   });
-  if (choice === 'camera') document.getElementById('file-camera').click();
-  else if (choice === 'gallery') document.getElementById('file-gallery').click();
+  if (choice === 'camera' || choice === 'gallery') pickPhoto(choice, { mode: 'new', mine });
   else if (choice === 'manual') {
-    draft = newDraft();
+    draft = newDraft(null, { mine });
     go('#/new');
   }
 }
 
-function newDraft(card = null) {
+function newDraft(card = null, { mine = false } = {}) {
   const fields = {};
   FIELD_KEYS.forEach(k => (fields[k] = card?.[k] || ''));
+  const isMine = card ? !!card.isMine : mine;
+  if (!card && mine) fields.email = store.getSyncMeta().email || '';
+  const main = card ? store.mainPhotoIndex(card) : 0;
   return {
     forId: card?.id || 'new',
     id: card?.id || store.uid(),
+    isMine,
     fields,
-    groupIds: [...(card?.groupIds || (ui.filter !== 'all' && ui.filter !== 'fav' && ui.filter !== 'none' ? [ui.filter] : []))],
+    groupIds: isMine ? [] : [...(card?.groupIds || (ui.filter !== 'all' && ui.filter !== 'fav' && ui.filter !== 'none' ? [ui.filter] : []))],
     favorite: card?.favorite || false,
-    image: null, // Blob
-    imageChanged: false,
-    imageRemoved: false,
-    hadImage: !!card?.hasImage,
+    // 사진: { id, fileId, blob, changed } — 0번 앞면, 1번 뒷면
+    photos: store.photosOf(card).map(p => ({ id: p.id, fileId: p.fileId || null, blob: null, changed: false })),
+    mainPhoto: main,
+    view: main,
+    removed: [], // 지운/교체된 사진 { id, fileId }
     touched: new Set(),
-    ocr: { status: 'idle', progress: 0, message: '', lines: [] },
-    ocrText: card?.ocrText || '',
-    run: 0,
+    ocr: {}, // 사진 id → { status, progress, message, lines }
+    ocrTexts: {}, // 사진 id → 인식 원문
+    ocrFilled: {}, // 항목 → 그 값을 채운 사진 id
+    runs: {},
+    baseOcrText: card?.ocrText || '',
   };
 }
 
-async function onImagePicked(file, { replaceInDraft = false } = {}) {
+async function onImagePicked(file) {
+  const target = capture || { mode: 'new' };
+  capture = null;
   if (!file) return;
   try {
     const blob = await normalizeImage(file);
-    if (!replaceInDraft || !draft) {
-      draft = newDraft();
-      draft.image = blob;
-      draft.imageChanged = true;
+    const photo = { id: store.uid(), fileId: null, blob, changed: true };
+    if (target.mode === 'new' || !draft) {
+      draft = newDraft(null, { mine: !!target.mine });
+      draft.photos = [photo];
       go('#/new');
-    } else {
-      draft.image = blob;
-      draft.imageChanged = true;
-      draft.imageRemoved = false;
+    } else if (target.mode === 'replace' && draft.photos[draft.view]) {
+      const old = draft.photos[draft.view];
+      draft.removed.push({ id: old.id, fileId: old.fileId });
+      draft.photos[draft.view] = photo;
       renderEditorPhoto();
+    } else {
+      if (draft.photos.length >= MAX_PHOTOS) return toast('사진은 앞면, 뒷면 2장까지 넣을 수 있습니다.', 'error');
+      draft.photos.push(photo);
+      draft.view = draft.photos.length - 1;
+      renderEditorPhoto();
+      renderOcrLines();
     }
-    runOcr();
+    runOcr(photo.id);
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -393,11 +439,12 @@ function renderEditor(id) {
     return `<label class="field"><span>${esc(f.label)}</span>${input}</label>`;
   };
   const byKey = k => FIELDS.find(f => f.key === k);
+  const title = d.isMine ? (card ? '내 명함 편집' : '내 명함 등록') : card ? '명함 편집' : '새 명함';
 
   $app.innerHTML = `
     <header class="topbar">
       <button class="icon-btn" data-action="cancel-edit" aria-label="취소">${icon('x')}</button>
-      <h1>${card ? '명함 편집' : '새 명함'}</h1>
+      <h1>${title}</h1>
     </header>
     <main class="editor">
       <section id="editor-photo"></section>
@@ -411,11 +458,12 @@ function renderEditor(id) {
         ${field(byKey('email'))}
         ${field(byKey('address'))}
         ${field(byKey('website'))}
-        <div class="form-section">
-          <h3>그룹</h3>
-          <div class="chips wrap" id="draft-groups"></div>
-        </div>
-        <label class="check-row"><input type="checkbox" id="draft-fav" ${d.favorite ? 'checked' : ''}> ★ 즐겨찾기</label>
+        ${d.isMine ? '' : `
+          <div class="form-section">
+            <h3>그룹</h3>
+            <div class="chips wrap" id="draft-groups"></div>
+          </div>
+          <label class="check-row"><input type="checkbox" id="draft-fav" ${d.favorite ? 'checked' : ''}> ★ 즐겨찾기</label>`}
         ${field(byKey('memo'))}
       </form>
     </main>
@@ -427,50 +475,61 @@ function renderEditor(id) {
   renderEditorPhoto();
   renderDraftGroups();
   renderOcrLines();
-  if (!d.image && d.hadImage && !d.imageRemoved && card) {
-    sync.loadCardImage(card).then(blob => {
-      if (blob && draft === d && !d.image) {
-        d.image = blob;
+  d.photos.forEach(p => {
+    if (p.blob) return;
+    sync.loadPhoto(p).then(blob => {
+      if (blob && draft === d && !p.blob) {
+        p.blob = blob;
         renderEditorPhoto();
       }
     }).catch(() => {});
-  }
+  });
 }
 
 function renderEditorPhoto() {
   const box = document.getElementById('editor-photo');
   if (!box || !draft) return;
   const d = draft;
-  if (d.image) {
-    box.innerHTML = `
-      <div class="photo-box" data-action="view-draft-photo"><img src="${objectUrl(d.image)}" alt="명함 사진"></div>
-      <div class="photo-actions">
-        <button class="btn small" data-action="rotate">${icon('rotate')}회전</button>
-        <button class="btn small" data-action="retake">${icon('camera')}다시 찍기</button>
-        <button class="btn small" data-action="rerun-ocr">${icon('scan')}다시 인식</button>
-        <button class="btn small ghost" data-action="remove-photo">${icon('trash')}사진 삭제</button>
-      </div>
-      <div id="ocr-status"></div>`;
-  } else if (d.hadImage && !d.imageRemoved) {
-    box.innerHTML = `<div class="photo-box">사진 불러오는 중…</div>`;
-  } else {
+  if (!d.photos.length) {
     box.innerHTML = `
       <div class="photo-empty">
         명함 사진을 추가하면 내용을 자동으로 읽어옵니다.
         <div class="btns">
-          <button class="btn small primary" data-action="retake">${icon('camera')}촬영</button>
-          <button class="btn small" data-action="pick-photo">${icon('image')}앨범</button>
+          <button class="btn small primary" data-action="photo-add" data-src="camera">${icon('camera')}촬영</button>
+          <button class="btn small" data-action="photo-add" data-src="gallery">${icon('image')}앨범</button>
         </div>
       </div>`;
+    return updateOcrStatus();
   }
+  d.view = Math.min(d.view, d.photos.length - 1);
+  const p = d.photos[d.view];
+  const tabs = d.photos.map((ph, i) => `
+    <button class="seg ${i === d.view ? 'on' : ''}" data-action="photo-tab" data-i="${i}">
+      ${sideLabel(i)}${i === d.mainPhoto ? ' <span class="main-mark">★ 대표</span>' : ''}
+    </button>`).join('');
+  box.innerHTML = `
+    <div class="seg-row">
+      ${tabs}
+      ${d.photos.length < MAX_PHOTOS ? `<button class="seg add" data-action="photo-add-back">${icon('plus')}뒷면 추가</button>` : ''}
+    </div>
+    <div class="photo-box" data-action="view-draft-photo">${p.blob ? `<img src="${objectUrl(p.blob)}" alt="명함 ${sideLabel(d.view)}">` : '사진 불러오는 중…'}</div>
+    <div class="photo-actions">
+      ${d.photos.length > 1 && d.view !== d.mainPhoto ? `<button class="btn small primary" data-action="photo-main">${icon('star')}대표로 설정</button>` : ''}
+      <button class="btn small" data-action="rotate">${icon('rotate')}회전</button>
+      <button class="btn small" data-action="photo-replace">${icon('camera')}다시 찍기</button>
+      <button class="btn small" data-action="rerun-ocr">${icon('scan')}다시 인식</button>
+      <button class="btn small ghost" data-action="remove-photo">${icon('trash')}삭제</button>
+    </div>
+    <div id="ocr-status"></div>`;
   updateOcrStatus();
 }
 
 function updateOcrStatus() {
   const el = document.getElementById('ocr-status');
   if (!el || !draft) return;
-  const o = draft.ocr;
-  if (o.status === 'idle') return (el.innerHTML = '');
+  const p = draft.photos[draft.view];
+  const o = p && draft.ocr[p.id];
+  if (!o) return (el.innerHTML = '');
   const cls = o.status === 'error' ? 'error' : o.status === 'done' ? 'done' : '';
   el.innerHTML = `<div class="ocr-status ${cls}">
     ${esc(o.message)}
@@ -481,9 +540,10 @@ function updateOcrStatus() {
 function renderOcrLines() {
   const el = document.getElementById('ocr-lines');
   if (!el || !draft) return;
-  const lines = draft.ocr.lines;
+  const p = draft.photos[draft.view];
+  const lines = (p && draft.ocr[p.id]?.lines) || [];
   el.innerHTML = lines.length
-    ? `<h3>인식된 글자 <span class="hint">· 눌러서 항목에 넣기</span></h3>${lines.map((t, i) => `<button class="ocr-line" data-action="assign-line" data-i="${i}">${esc(t)}</button>`).join('')}`
+    ? `<h3>인식된 글자${draft.photos.length > 1 ? ` (${sideLabel(draft.view)})` : ''} <span class="hint">· 눌러서 항목에 넣기</span></h3>${lines.map((t, i) => `<button class="ocr-line" data-action="assign-line" data-i="${i}">${esc(t)}</button>`).join('')}`
     : '';
 }
 
@@ -501,60 +561,73 @@ function setDraftField(key, value) {
   if (input) input.value = value;
 }
 
-async function runOcr() {
+// 사진 한 장을 인식해서 비어 있는 항목을 채웁니다.
+// 뒷면(영문 면 등)은 앞면에서 채운 값을 덮어쓰지 않고, 같은 사진을 다시 인식하면 그 사진이 채운 값은 갱신합니다.
+async function runOcr(photoId) {
   const d = draft;
-  if (!d?.image) return;
-  const run = ++d.run;
+  const photo = d?.photos.find(p => p.id === photoId);
+  if (!photo?.blob) return;
+  const run = (d.runs[photoId] = (d.runs[photoId] || 0) + 1);
   const settings = store.getSettings();
   let engine = settings.ocrEngine;
   if (engine === 'vision' && !settings.visionApiKey) {
     engine = 'tesseract';
     toast('Vision API 키가 없어 기본 OCR을 사용합니다.');
   }
-  d.ocr = { status: 'running', progress: 0, message: '준비 중…', lines: d.ocr.lines };
-  updateOcrStatus();
+  const state = (d.ocr[photoId] = { status: 'running', progress: 0, message: '준비 중…', lines: d.ocr[photoId]?.lines || [] });
+  const isCurrent = () => draft === d && d.runs[photoId] === run && d.photos.includes(photo);
+  const refresh = () => {
+    if (draft === d && d.photos[d.view] === photo) updateOcrStatus();
+  };
+  refresh();
   try {
-    const res = await recognize(d.image, {
+    const res = await recognize(photo.blob, {
       engine,
       apiKey: settings.visionApiKey,
       onProgress: (p, msg) => {
-        if (d.run !== run) return;
-        d.ocr.progress = p;
-        d.ocr.message = msg;
-        if (draft === d) updateOcrStatus();
+        if (!isCurrent()) return;
+        state.progress = p;
+        state.message = msg;
+        refresh();
       },
     });
-    if (d.run !== run) return;
+    if (!isCurrent()) return;
     const parsed = parseCard(res);
     let filled = 0;
     for (const k of FIELD_KEYS) {
       if (!parsed[k] || d.touched.has(k)) continue;
-      if (k === 'memo' && d.fields.memo) continue;
+      const cur = d.fields[k];
+      if (k === 'memo' && cur && d.ocrFilled.memo !== photoId) continue;
+      if (cur && d.ocrFilled[k] !== photoId) continue;
       d.fields[k] = parsed[k];
+      d.ocrFilled[k] = photoId;
       filled++;
     }
-    d.ocrText = res.text;
-    d.ocr = {
+    d.ocrTexts[photoId] = res.text;
+    d.ocr[photoId] = {
       status: 'done',
       progress: 1,
       lines: res.lines.map(l => l.text).filter(Boolean),
-      message: filled ? `${filled}개 항목을 읽었습니다. 틀린 부분은 아래 글자를 눌러 고치세요.` : '읽은 항목이 없습니다. 사진을 회전하거나 다시 찍어 보세요.',
+      message: filled
+        ? `${filled}개 항목을 읽었습니다. 틀린 부분은 아래 글자를 눌러 고치세요.`
+        : d.photos.indexOf(photo) > 0 ? '뒷면에서 새로 채울 항목은 없었습니다.' : '읽은 항목이 없습니다. 사진을 회전하거나 다시 찍어 보세요.',
     };
-    if (draft === d && ['new', 'edit'].includes(route().view)) {
+    if (['new', 'edit'].includes(route().view)) {
       FIELD_KEYS.forEach(k => setDraftField(k, d.fields[k]));
-      updateOcrStatus();
-      renderOcrLines();
+      refresh();
+      if (d.photos[d.view] === photo) renderOcrLines();
     }
   } catch (e) {
     console.error(e);
-    if (d.run !== run) return;
-    d.ocr = { status: 'error', progress: 0, lines: [], message: '인식 실패: ' + e.message };
-    updateOcrStatus();
+    if (!isCurrent()) return;
+    d.ocr[photoId] = { status: 'error', progress: 0, lines: [], message: '인식 실패: ' + e.message };
+    refresh();
   }
 }
 
 async function assignLine(i) {
-  const text = draft?.ocr.lines[i];
+  const p = draft?.photos[draft.view];
+  const text = p && draft.ocr[p.id]?.lines[i];
   if (!text) return;
   const key = await sheet({
     title: '어느 항목에 넣을까요?',
@@ -577,6 +650,19 @@ async function assignLine(i) {
   draft.touched.add(key);
 }
 
+function removeDraftPhoto() {
+  const d = draft;
+  const p = d.photos[d.view];
+  if (!p) return;
+  d.removed.push({ id: p.id, fileId: p.fileId });
+  d.photos.splice(d.view, 1);
+  if (d.mainPhoto === d.view) d.mainPhoto = 0;
+  else if (d.mainPhoto > d.view) d.mainPhoto--;
+  d.view = Math.max(0, d.view - 1);
+  renderEditorPhoto();
+  renderOcrLines();
+}
+
 // 같은 휴대폰 번호나 이메일을 가진 명함 찾기
 function findDuplicate(fields, excludeId) {
   const mobile = digits(fields.mobile);
@@ -591,13 +677,13 @@ async function saveDraft() {
   const d = draft;
   if (!d) return;
   document.querySelectorAll('[data-field]').forEach(el => (d.fields[el.dataset.field] = el.value.trim()));
-  d.favorite = document.getElementById('draft-fav')?.checked || false;
+  if (!d.isMine) d.favorite = document.getElementById('draft-fav')?.checked || false;
   const f = d.fields;
-  if (!FIELD_KEYS.some(k => f[k]) && !d.image) return toast('내용을 입력하거나 사진을 추가해 주세요.', 'error');
+  if (!FIELD_KEYS.some(k => f[k]) && !d.photos.length) return toast('내용을 입력하거나 사진을 추가해 주세요.', 'error');
 
   let targetId = d.id;
   let base = store.getCard(d.id);
-  const dup = d.forId === 'new' ? findDuplicate(f, d.id) : null;
+  const dup = d.forId === 'new' && !d.isMine ? findDuplicate(f, d.id) : null;
   if (dup) {
     const choice = await dialog({
       title: '이미 등록된 명함이 있어요',
@@ -614,43 +700,51 @@ async function saveDraft() {
       base = dup;
     }
   }
+  const merging = targetId !== d.id;
 
-  const data = { id: targetId, favorite: d.favorite, ocrText: d.ocrText };
-  for (const k of FIELD_KEYS) data[k] = f[k] || (base && targetId !== d.id ? base[k] || '' : '');
-  data.groupIds = base && targetId !== d.id ? [...new Set([...(base.groupIds || []), ...d.groupIds])] : d.groupIds;
-  if (targetId !== d.id) data.favorite = d.favorite || base.favorite;
+  const data = { id: targetId, isMine: d.isMine, favorite: d.favorite, ocrText: Object.values(d.ocrTexts).join('\n---\n') || d.baseOcrText };
+  for (const k of FIELD_KEYS) data[k] = f[k] || (merging ? base[k] || '' : '');
+  data.groupIds = merging ? [...new Set([...(base.groupIds || []), ...d.groupIds])] : d.groupIds;
+  if (merging) data.favorite = d.favorite || base.favorite;
 
-  if (d.image && (d.imageChanged || targetId !== d.id)) {
-    if (base?.imageFileId) store.addPendingDelete(base.imageFileId);
-    await idb.putImage(targetId, { blob: d.image, fileId: null });
-    data.hasImage = true;
-    data.imageFileId = null;
-  } else if (d.imageRemoved && targetId === d.id) {
-    if (base?.imageFileId) store.addPendingDelete(base.imageFileId);
-    await idb.deleteImage(targetId);
-    data.hasImage = false;
-    data.imageFileId = null;
+  // 사진: 바뀐 것만 기기에 저장, 지운 것은 Drive에서 정리
+  const removed = [...d.removed];
+  if (merging && d.photos.length) removed.push(...store.photosOf(base));
+  if (!merging || d.photos.length) {
+    for (const p of d.photos) if (p.changed) await idb.putImage(p.id, { blob: p.blob, fileId: null });
+    data.photos = d.photos.map(p => ({ id: p.id, fileId: p.changed ? null : p.fileId }));
+    data.mainPhoto = Math.min(d.mainPhoto, Math.max(0, d.photos.length - 1));
+  }
+  for (const r of removed) {
+    store.addPendingDelete(r.fileId);
+    await idb.deleteImage(r.id).catch(() => {});
   }
 
   store.saveCard(data);
   draft = null;
   toast('저장했습니다.');
-  if (d.forId !== 'new' && targetId === d.id) back();
+  if (d.forId !== 'new' && !merging) back();
   else go(`#/card/${targetId}`, { replace: true });
 }
 
 async function cancelEdit() {
   const d = draft;
-  const dirty = d && (d.imageChanged || d.touched.size || [...document.querySelectorAll('[data-field]')].some(el => el.value.trim() !== (store.getCard(d.id)?.[el.dataset.field] || '')));
+  const dirty = d && (d.photos.some(p => p.changed) || d.removed.length || d.touched.size ||
+    [...document.querySelectorAll('[data-field]')].some(el => el.value.trim() !== (store.getCard(d.id)?.[el.dataset.field] || d.fields[el.dataset.field] || '')));
   if (dirty && !(await confirmDialog('작성 중인 내용을 버릴까요?', '', '버리기', true))) return;
   draft = null;
   back();
 }
 
 // ---------- 상세 ----------
+let detailView = { id: null, index: 0 };
+
 function renderDetail(id) {
   const c = store.getCard(id);
   if (!c) return go('#/', { replace: true });
+  const photos = store.photosOf(c);
+  const main = store.mainPhotoIndex(c);
+  if (detailView.id !== id || detailView.index >= photos.length) detailView = { id, index: main };
   const tel = c.mobile || c.phone;
   const role = [c.department, c.title].filter(Boolean).join(' ');
   const row = (ic, label, value, actions = '') =>
@@ -662,24 +756,31 @@ function renderDetail(id) {
   $app.innerHTML = `
     <header class="topbar">
       <button class="icon-btn" data-action="back" aria-label="뒤로">${icon('back')}</button>
-      <h1></h1>
-      <button class="icon-btn ${c.favorite ? 'active' : ''}" data-action="toggle-fav" data-id="${c.id}" aria-label="즐겨찾기">${icon('star')}</button>
+      <h1>${c.isMine ? '내 명함' : ''}</h1>
+      ${c.isMine ? '' : `<button class="icon-btn ${c.favorite ? 'active' : ''}" data-action="toggle-fav" data-id="${c.id}" aria-label="즐겨찾기">${icon('star')}</button>`}
       <button class="icon-btn" data-action="edit" data-id="${c.id}" aria-label="편집">${icon('edit')}</button>
     </header>
     <main class="detail">
-      ${c.hasImage ? `<div class="photo-box" id="detail-photo" data-action="view-photo">사진 불러오는 중…</div>` : ''}
+      ${photos.length ? `
+        <div class="photo-box" id="detail-photo" data-action="view-photo">사진 불러오는 중…</div>
+        ${photos.length > 1 ? `
+          <div class="seg-row center">
+            ${photos.map((_, i) => `<button class="seg ${i === detailView.index ? 'on' : ''}" data-action="detail-photo-tab" data-i="${i}">${sideLabel(i)}${i === main ? ' <span class="main-mark">★ 대표</span>' : ''}</button>`).join('')}
+            ${detailView.index !== main ? `<button class="seg add" data-action="detail-photo-main" data-id="${c.id}">${icon('star')}대표로</button>` : ''}
+          </div>` : ''}` : ''}
       <section class="detail-head">
         ${avatar(c, 'lg')}
         <h1>${esc(c.name || '(이름 없음)')}</h1>
         ${role ? `<p class="role">${esc(role)}</p>` : ''}
         ${c.company ? `<p class="company">${esc(c.company)}</p>` : ''}
       </section>
+      ${c.isMine ? `<button class="btn primary block send-mine" data-action="share" data-id="${c.id}">${icon('share')}내 명함 보내기</button>` : `
       <section class="quick-actions">
         <a href="${tel ? 'tel:' + digits(tel) : '#'}" class="${tel ? '' : 'disabled'}">${icon('phone')}전화</a>
         <a href="${c.mobile ? 'sms:' + digits(c.mobile) : '#'}" class="${c.mobile ? '' : 'disabled'}">${icon('message')}문자</a>
         <a href="${c.email ? 'mailto:' + esc(c.email) : '#'}" class="${c.email ? '' : 'disabled'}">${icon('mail')}메일</a>
         <button data-action="share" data-id="${c.id}">${icon('share')}공유</button>
-      </section>
+      </section>`}
       <section class="panel">
         ${row('phone', '휴대폰', c.mobile, `<a class="icon-btn" href="sms:${digits(c.mobile)}" aria-label="문자">${icon('message')}</a><a class="icon-btn" href="tel:${digits(c.mobile)}" aria-label="전화">${icon('phone')}</a>`)}
         ${row('phone', '전화', c.phone, `<a class="icon-btn" href="tel:${digits(c.phone)}" aria-label="전화">${icon('phone')}</a>`)}
@@ -688,50 +789,66 @@ function renderDetail(id) {
         ${row('mapPin', '주소', c.address, `${copyBtn('address')}<a class="icon-btn" href="https://map.naver.com/p/search/${encodeURIComponent(c.address)}" target="_blank" rel="noopener" aria-label="지도">${icon('mapPin')}</a>`)}
         ${row('globe', '홈페이지', c.website, `<a class="icon-btn" href="${esc(web)}" target="_blank" rel="noopener" aria-label="열기">${icon('globe')}</a>`)}
       </section>
+      ${c.isMine ? '' : `
       <section class="panel">
         <p class="panel-title">그룹</p>
         <div class="chips wrap">
           ${groups.map(g => `<span class="chip"><span class="dot" style="--c:${g.color}"></span>${esc(g.name)}</span>`).join('')}
           <button class="chip dashed" data-action="pick-groups" data-id="${c.id}">${icon('edit')}${groups.length ? '변경' : '그룹 지정'}</button>
         </div>
-      </section>
+      </section>`}
       ${c.memo ? `<section class="panel"><p class="panel-title">메모</p><p class="memo">${esc(c.memo)}</p></section>` : ''}
       <section class="detail-actions">
         <button class="btn" data-action="share" data-id="${c.id}">${icon('share')}공유</button>
         <button class="btn" data-action="vcard" data-id="${c.id}">${icon('download')}연락처 파일</button>
-        <button class="btn danger" data-action="delete-card" data-id="${c.id}" style="grid-column:1/-1">${icon('trash')}삭제</button>
+        <button class="btn danger" data-action="delete-card" data-id="${c.id}" style="grid-column:1/-1">${icon('trash')}${c.isMine ? '내 명함 삭제' : '삭제'}</button>
       </section>
       <p class="meta">등록 ${fmtDate(c.createdAt)}${c.updatedAt && c.updatedAt !== c.createdAt ? ` · 수정 ${fmtDate(c.updatedAt)}` : ''}</p>
     </main>`;
 
-  if (c.hasImage) {
-    sync.loadCardImage(c).then(blob => {
-      const box = document.getElementById('detail-photo');
-      if (!box) return;
-      if (blob) box.innerHTML = `<img src="${objectUrl(blob)}" alt="명함 사진">`;
-      else box.textContent = drive.hasValidToken() ? '사진이 없습니다.' : 'Google Drive에 연결하면 사진을 볼 수 있습니다.';
-    }).catch(() => {
-      const box = document.getElementById('detail-photo');
-      if (box) box.textContent = '사진을 불러오지 못했습니다.';
-    });
-  }
+  if (photos.length) showDetailPhoto(c);
+}
+
+function showDetailPhoto(card) {
+  const photo = store.photosOf(card)[detailView.index];
+  sync.loadPhoto(photo).then(blob => {
+    const box = document.getElementById('detail-photo');
+    if (!box || detailView.id !== card.id) return;
+    if (blob) box.innerHTML = `<img src="${objectUrl(blob)}" alt="명함 ${sideLabel(detailView.index)}">`;
+    else box.textContent = drive.hasValidToken() ? '사진이 없습니다.' : 'Google Drive에 연결하면 사진을 볼 수 있습니다.';
+  }).catch(() => {
+    const box = document.getElementById('detail-photo');
+    if (box) box.textContent = '사진을 불러오지 못했습니다.';
+  });
+}
+
+async function cardPhotoBlobs(card) {
+  const photos = store.photosOf(card);
+  const main = store.mainPhotoIndex(card);
+  const ordered = [photos[main], ...photos.filter((_, i) => i !== main)].filter(Boolean);
+  const blobs = await Promise.all(ordered.map(p => sync.loadPhoto(p).catch(() => null)));
+  return blobs.filter(Boolean);
 }
 
 async function shareCard(id) {
   const c = store.getCard(id);
   if (!c) return;
-  const choice = await sheet({
-    title: '명함 공유',
-    sub: buildShareText(c),
-    items: [
-      { label: '텍스트로 공유', desc: '카카오톡, 문자 등으로 보내기', icon: 'share', value: 'text' },
-      { label: '텍스트 복사', icon: 'copy', value: 'copy' },
-      { label: '연락처 파일(vCard)로 공유', desc: '받는 사람이 바로 주소록에 저장할 수 있어요', icon: 'contact', value: 'vcard' },
-    ],
-  });
+  const photoCount = store.photosOf(c).length;
+  const items = [
+    { label: '텍스트로 공유', desc: '카카오톡, 문자 등으로 보내기', icon: 'share', value: 'text' },
+    ...(photoCount ? [{ label: '명함 사진 + 정보 보내기', desc: photoCount > 1 ? '앞면·뒷면 사진과 텍스트를 함께' : '명함 사진과 텍스트를 함께', icon: 'image', value: 'photo' }] : []),
+    { label: '텍스트 복사', icon: 'copy', value: 'copy' },
+    { label: '연락처 파일(vCard)로 공유', desc: '받는 사람이 바로 주소록에 저장할 수 있어요', icon: 'contact', value: 'vcard' },
+  ];
+  const choice = await sheet({ title: c.isMine ? '내 명함 보내기' : '명함 공유', sub: buildShareText(c), items });
   if (choice === 'text') {
     const r = await shareCardText(c);
     if (r === 'copied') toast('공유 기능이 없어 클립보드에 복사했습니다.');
+  } else if (choice === 'photo') {
+    const blobs = await cardPhotoBlobs(c);
+    if (!blobs.length) return toast('사진을 불러오지 못했습니다. Google Drive 연결을 확인해 주세요.', 'error');
+    const r = await sharePhotos(c, blobs);
+    if (r === 'downloaded') toast('이 기기에서는 사진 공유가 안 되어 사진을 내려받았습니다.');
   } else if (choice === 'copy') {
     await copyText(buildShareText(c));
     toast('복사했습니다.');
@@ -793,11 +910,38 @@ async function pickGroups(id) {
 async function deleteCard(id) {
   const c = store.getCard(id);
   if (!c) return;
-  if (!(await confirmDialog('명함을 삭제할까요?', `${c.name || '(이름 없음)'} 명함이 삭제됩니다.${c.imageFileId ? '\n사진은 Google Drive 휴지통으로 이동합니다.' : ''}`, '삭제', true))) return;
+  const photos = store.photosOf(c);
+  const title = c.isMine ? '내 명함을 삭제할까요?' : '명함을 삭제할까요?';
+  if (!(await confirmDialog(title, `${c.name || '(이름 없음)'} 명함이 삭제됩니다.${photos.some(p => p.fileId) ? '\n사진은 Google Drive 휴지통으로 이동합니다.' : ''}`, '삭제', true))) return;
   store.deleteCard(id);
-  await idb.deleteImage(id).catch(() => {});
+  for (const p of photos) await idb.deleteImage(p.id).catch(() => {});
   toast('삭제했습니다.');
   go('#/', { replace: true });
+}
+
+// ---------- 내 명함 ----------
+function renderMyCard() {
+  const mine = store.getMyCard();
+  if (mine) return go(`#/card/${mine.id}`, { replace: true });
+  const meta = store.getSyncMeta();
+  $app.innerHTML = `
+    <header class="topbar">
+      <button class="icon-btn" data-action="back" aria-label="뒤로">${icon('back')}</button>
+      <h1>내 명함</h1>
+    </header>
+    <main class="page">
+      <div class="empty">
+        ${icon('contact')}
+        <h2>내 명함을 등록하세요</h2>
+        <p>한 번 등록해 두면 카카오톡, 문자로 바로 보낼 수 있어요.<br>앞면과 뒷면을 모두 찍어 둘 수도 있습니다.</p>
+        <div class="stack">
+          <button class="btn primary block" data-action="mine-add" data-src="camera">${icon('camera')}내 명함 촬영</button>
+          <button class="btn block" data-action="mine-add" data-src="gallery">${icon('image')}앨범에서 선택</button>
+          <button class="btn ghost block" data-action="mine-add" data-src="manual">${icon('edit')}직접 입력</button>
+        </div>
+        <p class="small-note">${meta.email && drive.hasValidToken() ? `${esc(meta.email)} 계정의 Google Drive에 함께 저장됩니다.` : 'Google Drive에 연결하면 다른 기기에서도 내 명함을 쓸 수 있습니다.'}</p>
+      </div>
+    </main>`;
 }
 
 // ---------- 그룹 관리 ----------
@@ -899,6 +1043,12 @@ function renderSettings() {
       <h2 class="section-title">Google Drive 저장</h2>
       <section class="panel"><div class="panel-body" id="drive-status">${driveStatusHtml()}</div></section>
 
+      <h2 class="section-title">내 명함</h2>
+      <section class="panel"><div class="panel-body">
+        <p>${store.getMyCard() ? `${esc(store.getMyCard().name || '(이름 없음)')} 명함이 등록되어 있습니다.` : '아직 등록하지 않았습니다.'}</p>
+        <button class="btn block" data-action="nav" data-to="#/me">${icon('contact')}${store.getMyCard() ? '내 명함 보기' : '내 명함 등록'}</button>
+      </div></section>
+
       <h2 class="section-title">글자 인식(OCR) 방식</h2>
       <section class="panel">
         <label class="radio-row"><input type="radio" name="ocr" value="tesseract" ${s.ocrEngine !== 'vision' ? 'checked' : ''}>
@@ -969,7 +1119,13 @@ document.addEventListener('click', async e => {
     case 'back': return back();
     case 'open': return go(`#/card/${id}`);
     case 'add': return addCard();
-    case 'capture': return document.getElementById('file-camera').click();
+    case 'capture': return pickPhoto('camera', { mode: 'new' });
+    case 'mine-add':
+      if (el.dataset.src === 'manual') {
+        draft = newDraft(null, { mine: true });
+        return go('#/new');
+      }
+      return pickPhoto(el.dataset.src, { mode: 'new', mine: true });
     case 'filter':
       ui.filter = id;
       store.setUiPrefs({ filter: id });
@@ -985,30 +1141,53 @@ document.addEventListener('click', async e => {
     }
     case 'sync-click': return onSyncClick();
 
-    // 편집
+    // 편집 — 사진
     case 'cancel-edit': return cancelEdit();
     case 'save-card': return saveDraft();
-    case 'retake':
-      return document.getElementById('file-camera').click();
-    case 'pick-photo':
-      return document.getElementById('file-gallery').click();
-    case 'rotate':
-      if (!draft?.image) return;
-      draft.image = await normalizeImage(draft.image, { rotate: 90 });
-      draft.imageChanged = true;
-      renderEditorPhoto();
-      return runOcr();
-    case 'rerun-ocr': return runOcr();
-    case 'remove-photo':
-      draft.image = null;
-      draft.imageChanged = false;
-      draft.imageRemoved = true;
-      draft.run++;
-      draft.ocr = { status: 'idle', progress: 0, message: '', lines: [] };
+    case 'photo-add': return pickPhoto(el.dataset.src, { mode: 'add' });
+    case 'photo-add-back': {
+      const src = await sheet({
+        title: '뒷면 사진 추가',
+        items: [
+          { label: '카메라로 촬영', icon: 'camera', value: 'camera' },
+          { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
+        ],
+      });
+      return src && pickPhoto(src, { mode: 'add' });
+    }
+    case 'photo-replace': return pickPhoto('camera', { mode: 'replace' });
+    case 'photo-tab':
+      draft.view = +el.dataset.i;
       renderEditorPhoto();
       return renderOcrLines();
-    case 'view-draft-photo':
-      return draft?.image && viewImage(objectUrl(draft.image));
+    case 'photo-main':
+      draft.mainPhoto = draft.view;
+      toast(`${sideLabel(draft.view)}을 대표 사진으로 정했습니다.`);
+      return renderEditorPhoto();
+    case 'rotate': {
+      const p = draft?.photos[draft.view];
+      if (!p?.blob) return;
+      const old = { id: p.id, fileId: p.fileId };
+      const blob = await normalizeImage(p.blob, { rotate: 90 });
+      // 회전한 사진은 새 사진으로 취급 (Drive의 예전 파일은 저장 시 정리)
+      if (!p.changed) draft.removed.push(old);
+      Object.assign(p, { id: p.changed ? p.id : store.uid(), fileId: null, blob, changed: true });
+      if (p.id !== old.id) {
+        draft.ocr[p.id] = draft.ocr[old.id];
+        for (const k in draft.ocrFilled) if (draft.ocrFilled[k] === old.id) draft.ocrFilled[k] = p.id;
+      }
+      renderEditorPhoto();
+      return runOcr(p.id);
+    }
+    case 'rerun-ocr': {
+      const p = draft?.photos[draft.view];
+      return p && runOcr(p.id);
+    }
+    case 'remove-photo': return removeDraftPhoto();
+    case 'view-draft-photo': {
+      const p = draft?.photos[draft.view];
+      return p?.blob && viewImage(objectUrl(p.blob));
+    }
     case 'assign-line': return assignLine(+el.dataset.i);
     case 'toggle-draft-group': {
       const i = draft.groupIds.indexOf(id);
@@ -1030,6 +1209,13 @@ document.addEventListener('click', async e => {
       const c = store.getCard(id);
       return c && store.patchCard(id, { favorite: !c.favorite });
     }
+    case 'detail-photo-tab': {
+      detailView.index = +el.dataset.i;
+      return renderDetail(route().id);
+    }
+    case 'detail-photo-main':
+      store.patchCard(id, { mainPhoto: detailView.index });
+      return toast(`${sideLabel(detailView.index)}을 대표 사진으로 정했습니다.`);
     case 'share': return shareCard(id);
     case 'vcard': {
       const r = await shareVCard([store.getCard(id)]);
@@ -1130,8 +1316,7 @@ for (const id of ['file-camera', 'file-gallery']) {
   document.getElementById(id).addEventListener('change', e => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    const inEditor = ['new', 'edit'].includes(route().view) && draft;
-    onImagePicked(file, { replaceInDraft: !!inEditor });
+    onImagePicked(file);
   });
 }
 document.getElementById('file-import').addEventListener('change', e => {

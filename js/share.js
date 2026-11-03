@@ -90,6 +90,22 @@ export function vcardFilename(cards, label) {
   return `명함_${cards.length}명.vcf`;
 }
 
+// 명함 사진(앞면/뒷면) + 정보 텍스트 함께 보내기. 반환: 'shared' | 'downloaded' | 'cancel'
+export async function sharePhotos(card, blobs) {
+  const base = safeName(card.name || card.company) || '명함';
+  const files = blobs.map((b, i) => new File([b], `${base}${blobs.length > 1 ? (i ? '_뒷면' : '_앞면') : ''}.jpg`, { type: 'image/jpeg' }));
+  if (navigator.canShare?.({ files })) {
+    try {
+      await navigator.share({ files, text: buildShareText(card) });
+      return 'shared';
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancel';
+    }
+  }
+  files.forEach(f => downloadBlob(f, f.name));
+  return 'downloaded';
+}
+
 // 반환: 'shared' | 'downloaded' | 'cancel'
 export async function shareVCard(cards, label) {
   const filename = vcardFilename(cards, label);

@@ -10,4 +10,4 @@ export const DEFAULT_CONFIG = {
   driveFolderName: '명함관리',
 };
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';

@@ -47,21 +47,44 @@ export function subscribe(fn) {
 }
 
 // ---------- 명함 ----------
+// photos: [{ id, fileId }] — 최대 2장(앞면, 뒷면), mainPhoto: 대표 사진 순번
+// isMine: 내 명함 (목록/그룹/내보내기에서는 제외)
 export function emptyCard() {
-  const card = { groupIds: [], favorite: false, hasImage: false, imageFileId: null, ocrText: '' };
+  const card = { groupIds: [], favorite: false, photos: [], mainPhoto: 0, ocrText: '' };
   FIELD_KEYS.forEach(k => (card[k] = ''));
   return card;
 }
 
-export const cards = () => data.cards.filter(c => !c.deleted);
+// 명함 사진 목록 (예전 형식 hasImage/imageFileId도 읽음)
+export function photosOf(card) {
+  if (Array.isArray(card?.photos)) return card.photos;
+  if (card?.hasImage || card?.imageFileId) return [{ id: card.id, fileId: card.imageFileId || null }];
+  return [];
+}
+export function mainPhotoIndex(card) {
+  const n = photosOf(card).length;
+  return n ? Math.min(card.mainPhoto || 0, n - 1) : 0;
+}
+
+export const cards = () => data.cards.filter(c => !c.deleted && !c.isMine);
 export const allCards = () => data.cards;
 export const getCard = id => data.cards.find(c => c.id === id && !c.deleted) || null;
+export const getMyCard = () =>
+  data.cards.filter(c => !c.deleted && c.isMine).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] || null;
+
+function applyPatch(card, patch) {
+  Object.assign(card, patch, { updatedAt: Date.now() });
+  if ('photos' in patch) {
+    delete card.hasImage;
+    delete card.imageFileId;
+  }
+}
 
 export function saveCard(input) {
   const now = Date.now();
   let card = data.cards.find(c => c.id === input.id);
   if (card && !card.deleted) {
-    Object.assign(card, input, { updatedAt: now });
+    applyPatch(card, input);
   } else {
     card = { ...emptyCard(), ...input, id: input.id || uid(), createdAt: now, updatedAt: now };
     delete card.deleted;
@@ -75,7 +98,7 @@ export function saveCard(input) {
 export function patchCard(id, patch, source = 'local') {
   const card = data.cards.find(c => c.id === id);
   if (!card) return;
-  Object.assign(card, patch, { updatedAt: Date.now() });
+  applyPatch(card, patch);
   commit(source);
 }
 
@@ -83,8 +106,8 @@ export function patchCard(id, patch, source = 'local') {
 export function deleteCard(id) {
   const i = data.cards.findIndex(c => c.id === id);
   if (i < 0) return;
-  const c = data.cards[i];
-  data.cards[i] = { id, deleted: true, imageFileId: c.imageFileId || null, updatedAt: Date.now() };
+  const photos = photosOf(data.cards[i]).filter(p => p.fileId);
+  data.cards[i] = { id, deleted: true, photos, updatedAt: Date.now() };
   commit();
 }
 

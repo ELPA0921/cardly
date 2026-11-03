@@ -45,7 +45,10 @@ export async function connect() {
   if (meta.email && meta.email !== user.emailAddress) {
     // 다른 계정으로 연결 → 폴더 정보 초기화, 이전 계정의 이미지 ID는 사용할 수 없음
     store.clearSyncMeta();
-    for (const c of store.allCards()) if (c.imageFileId) c.imageFileId = null;
+    for (const c of store.allCards()) {
+      const photos = store.photosOf(c);
+      if (photos.some(p => p.fileId)) store.patchCard(c.id, { photos: photos.map(p => ({ ...p, fileId: null })) }, 'sync');
+    }
   }
   store.setSyncMeta({ email: user.emailAddress, displayName: user.displayName });
   await syncNow();
@@ -92,21 +95,28 @@ export async function syncNow() {
 
     // 사진 업로드 / 삭제된 명함의 사진 정리
     for (const c of [...store.allCards()]) {
+      const photos = store.photosOf(c);
       if (c.deleted) {
-        if (c.imageFileId) {
-          await drive.trashFile(c.imageFileId);
-          store.patchCard(c.id, { imageFileId: null }, 'sync');
+        const uploaded = photos.filter(p => p.fileId);
+        if (uploaded.length) {
+          for (const p of uploaded) await drive.trashFile(p.fileId);
+          store.patchCard(c.id, { photos: [] }, 'sync');
         }
         continue;
       }
-      if (c.hasImage && !c.imageFileId) {
-        const cached = await idb.getImage(c.id);
-        if (cached?.blob) {
-          const imageId = await drive.createFile(folderId, `card_${c.id}.jpg`, cached.blob, 'image/jpeg');
-          await idb.putImage(c.id, { blob: cached.blob, fileId: imageId });
-          store.patchCard(c.id, { imageFileId: imageId }, 'sync');
+      if (!photos.some(p => !p.fileId)) continue;
+      const next = [];
+      for (const p of photos) {
+        const cached = !p.fileId && (await idb.getImage(p.id));
+        if (!cached?.blob) {
+          next.push(p);
+          continue;
         }
+        const fileId = await drive.createFile(folderId, `card_${p.id}.jpg`, cached.blob, 'image/jpeg');
+        await idb.putImage(p.id, { blob: cached.blob, fileId });
+        next.push({ ...p, fileId });
       }
+      store.patchCard(c.id, { photos: next }, 'sync');
     }
     for (const id of store.pendingDeletes()) {
       await drive.trashFile(id);
@@ -133,13 +143,13 @@ export async function syncNow() {
 }
 
 // 명함 사진 가져오기: 로컬 캐시 → 없으면 Drive에서 내려받아 캐시
-export async function loadCardImage(card) {
-  if (!card?.hasImage) return null;
-  const cached = await idb.getImage(card.id);
-  if (cached?.blob && (!card.imageFileId || !cached.fileId || cached.fileId === card.imageFileId)) return cached.blob;
-  if (card.imageFileId && drive.hasValidToken()) {
-    const blob = await drive.download(card.imageFileId);
-    await idb.putImage(card.id, { blob, fileId: card.imageFileId });
+export async function loadPhoto(photo) {
+  if (!photo) return null;
+  const cached = await idb.getImage(photo.id);
+  if (cached?.blob && (!photo.fileId || !cached.fileId || cached.fileId === photo.fileId)) return cached.blob;
+  if (photo.fileId && drive.hasValidToken()) {
+    const blob = await drive.download(photo.fileId);
+    await idb.putImage(photo.id, { blob, fileId: photo.fileId });
     return blob;
   }
   return cached?.blob || null;
