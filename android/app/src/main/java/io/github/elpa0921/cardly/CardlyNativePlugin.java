@@ -360,9 +360,14 @@ public class CardlyNativePlugin extends Plugin {
         String displayName = call.getString("displayName", "");
         if (displayName.isEmpty()) displayName = name.isEmpty() ? company : name;
         if (!displayName.isEmpty()) {
-            // 이름 전체를 '이름' 칸에 넣어 성/이름으로 잘못 나뉘지 않게 합니다.
-            rows.add(cv(CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE, CommonDataKinds.StructuredName.GIVEN_NAME, displayName));
+            // 이름 전체를 '이름' 칸에 넣어 성/이름으로 잘못 나뉘지 않게 하고,
+            // 편집 화면의 한 줄 '이름' 칸(표시 이름)에도 보이도록 DISPLAY_NAME도 함께 넣습니다.
+            ContentValues n = cv(CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE, CommonDataKinds.StructuredName.DISPLAY_NAME, displayName);
+            n.put(CommonDataKinds.StructuredName.GIVEN_NAME, displayName);
+            rows.add(n);
         }
+        // 연락처 앱이 DATA 대신 기본 '이름' 값을 읽는 경우를 위해 같은 이름을 넘김
+        String nameExtra = displayName;
         String department = call.getString("department", "");
         String title = call.getString("title", "");
         if (!company.isEmpty() || !department.isEmpty() || !title.isEmpty()) {
@@ -405,6 +410,7 @@ public class CardlyNativePlugin extends Plugin {
 
         Intent intent = new Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI);
         intent.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, rows);
+        if (!nameExtra.isEmpty()) intent.putExtra(ContactsContract.Intents.Insert.NAME, nameExtra);
         intent.putExtra("finishActivityOnSaveCompleted", true);
         try {
             startActivityForResult(call, intent, "onNewContactResult");
