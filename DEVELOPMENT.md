@@ -58,8 +58,9 @@ git config user.email "ELPA0921@users.noreply.github.com"
 index.html, css/, js/, icons/   웹앱 (GitHub Pages에 그대로 배포됨)
   js/app.js          화면과 동작 (목록, 편집, 상세, 설정, 로그인, 뒤로가기)
   js/parser.js       OCR 글자 → 명함 항목 추출, 전화번호 하이픈 규칙
-  js/ocr.js          글자 인식: ML Kit(앱) / Google Vision / Tesseract(웹)
-  js/scan.js         (웹) 명함 테두리 찾기 + 원근 보정
+  js/ocr.js          글자 인식: ML Kit(앱 기본) / Google Vision / Tesseract (웹에서는 인식 기능을 쓰지 않음)
+  js/hanja.js        한자 → 한글 음 표 (scripts/make-hanja.mjs 로 생성)
+  js/scan.js         명함 테두리 찾기 + 원근 보정 (앨범 사진 자르기)
   js/store.js        로컬 저장소, Drive 데이터 병합, 계정 공통 설정(prefs)
   js/sync.js         Google Drive 동기화 (카들리 폴더, 사진 파일 이름)
   js/drive.js        Google 로그인(웹: GIS / 앱: 네이티브) + Drive API
@@ -73,6 +74,7 @@ android/             안드로이드 앱 (Capacitor)
 design/logo-source.webp   로고 원본
 scripts/build-web.mjs     웹 파일을 앱용 www 폴더로 복사
 scripts/make-icons.mjs    로고 원본 → 앱/웹 아이콘, 워드마크, 시작 화면 생성
+scripts/make-hanja.mjs    Unicode Unihan → js/hanja.js (한자 음 표)
 scripts/setup-windows.ps1 새 PC 개발 환경 설치
 tests/parser-test.html    항목 추출 테스트 (브라우저에서 열기)
 tests/native-sim.html     PC 브라우저에서 '앱 모드'를 흉내 내 테스트

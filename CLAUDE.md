@@ -1,6 +1,7 @@
 # 카들리 (Cardly) — Claude Code 작업 메모
 
 명함 촬영 → OCR → Google Drive 저장 명함 관리 앱. 웹(GitHub Pages)과 안드로이드 앱(Capacitor)이 같은 코드를 씁니다.
+**촬영·인식(OCR)·새 명함 등록은 앱 전용**, 웹은 조회·검색·수정·공유용 (웹 글자 인식은 정확도가 낮아 v0.9.4부터 숨김).
 개발 환경 준비·빌드·배포 절차는 `DEVELOPMENT.md` 를 먼저 읽으세요.
 
 ## 사용자

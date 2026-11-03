@@ -273,7 +273,7 @@ function render() {
   if (needsLogin()) return renderLogin();
   if (view === 'card') return renderDetail(id);
   if (view === 'edit') return renderEditor(id);
-  if (view === 'new') return renderEditor(null);
+  if (view === 'new') return isNative ? renderEditor(null) : go('#/', { replace: true });
   if (view === 'me') return renderMyCard();
   if (view === 'groups') return renderGroups();
   if (view === 'settings') return renderSettings();
@@ -402,6 +402,7 @@ function filteredCards() {
 function myCardBanner() {
   const mine = store.getMyCard();
   if (!mine) {
+    if (!isNative) return '';
     return `
       <button class="my-card add" data-action="nav" data-to="#/me">
         <div class="avatar" style="--c:var(--primary)">${icon('user')}</div>
@@ -454,7 +455,7 @@ function renderList() {
     </div>
     <div id="my-card-slot" class="my-card-slot"></div>
     <main class="card-list" id="card-list"></main>
-    <button class="fab" data-action="add">${icon('camera')}<span>명함 추가</span></button>`;
+    ${isNative ? `<button class="fab" data-action="add">${icon('camera')}<span>명함 추가</span></button>` : ''}`;
   renderListItems();
 }
 
@@ -466,12 +467,19 @@ function renderListItems() {
   const list = filteredCards();
   document.getElementById('list-count').textContent = `${list.length}개`;
   if (!store.cards().length) {
-    box.innerHTML = `
+    box.innerHTML = isNative
+      ? `
       <div class="empty">
         ${icon('scan')}
         <h2>첫 명함을 등록해 보세요</h2>
         <p>명함을 촬영하면 이름, 회사, 연락처를 자동으로 읽어옵니다.</p>
-        <button class="btn primary" data-action="capture">${icon(isNative ? 'scan' : 'camera')}${isNative ? '명함 스캔하기' : '명함 촬영하기'}</button>
+        <button class="btn primary" data-action="capture">${icon('scan')}명함 스캔하기</button>
+      </div>`
+      : `
+      <div class="empty">
+        ${icon('scan')}
+        <h2>아직 명함이 없습니다</h2>
+        <p>${APP_ONLY_NOTE}<br>앱에서 저장한 명함은 같은 Google 계정으로 로그인하면 여기에 표시됩니다.</p>
       </div>`;
     return;
   }
@@ -505,16 +513,14 @@ function pickPhoto(source, target) {
   document.getElementById(source === 'camera' ? 'file-camera' : 'file-gallery').click();
 }
 
+// 명함 촬영·인식은 앱에서만 합니다. 웹은 조회·수정용 (웹 글자 인식은 정확도가 낮음)
 const PHOTO_SOURCES = isNative
   ? [
       { label: '명함 스캔', desc: '테두리를 자동으로 잡아 반듯하게 찍습니다 (앞·뒷면 연속 촬영 가능)', icon: 'scan', value: 'native-scan' },
       { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
     ]
-  : [
-      { label: '카메라로 촬영', desc: '찍은 뒤 명함 테두리를 맞춰 자릅니다', icon: 'camera', value: 'camera' },
-      { label: '갤럭시 카메라로 스캔한 사진', desc: '문서 스캔으로 잘라 둔 사진을 그대로 인식', icon: 'scan', value: 'scanned' },
-      { label: '앨범에서 사진 선택', icon: 'image', value: 'gallery' },
-    ];
+  : [];
+const APP_ONLY_NOTE = '명함 촬영과 등록은 카들리 안드로이드 앱에서 할 수 있습니다.';
 
 // 앱: ML Kit 문서 스캐너. 새 명함이면 앞면·뒷면 2장까지 이어서 찍을 수 있습니다.
 async function nativeScan(target) {
@@ -684,6 +690,7 @@ function renderEditorPhoto() {
   if (!box || !draft) return;
   const d = draft;
   if (!d.photos.length) {
+    if (!isNative) return (box.innerHTML = `<div class="photo-empty">명함 사진이 없습니다. 사진은 카들리 앱에서 추가할 수 있습니다.</div>`);
     box.innerHTML = `
       <div class="photo-empty">
         명함 사진을 추가하면 내용을 자동으로 읽어옵니다.
@@ -702,15 +709,15 @@ function renderEditorPhoto() {
   box.innerHTML = `
     <div class="seg-row">
       ${tabs}
-      ${d.photos.length < MAX_PHOTOS ? `<button class="seg add" data-action="photo-add-back">${icon('plus')}뒷면 추가</button>` : ''}
+      ${isNative && d.photos.length < MAX_PHOTOS ? `<button class="seg add" data-action="photo-add-back">${icon('plus')}뒷면 추가</button>` : ''}
     </div>
     <div class="photo-box" data-action="view-draft-photo">${p.blob ? `<img src="${objectUrl(p.blob)}" alt="명함 ${sideLabel(d.view)}">` : '사진 불러오는 중…'}</div>
     <div class="photo-actions">
       ${d.photos.length > 1 && d.view !== d.mainPhoto ? `<button class="btn small primary" data-action="photo-main">${icon('star')}대표로 설정</button>` : ''}
-      <button class="btn small" data-action="crop">${icon('crop')}자르기</button>
+      ${isNative ? `<button class="btn small" data-action="crop">${icon('crop')}자르기</button>
       <button class="btn small" data-action="rotate">${icon('rotate')}회전</button>
       <button class="btn small" data-action="photo-replace">${icon('camera')}사진 바꾸기</button>
-      <button class="btn small" data-action="rerun-ocr">${icon('scan')}다시 인식</button>
+      <button class="btn small" data-action="rerun-ocr">${icon('scan')}다시 인식</button>` : ''}
       <button class="btn small ghost" data-action="remove-photo">${icon('trash')}삭제</button>
     </div>
     <div id="ocr-status"></div>`;
@@ -1244,10 +1251,10 @@ function renderMyCard() {
         ${icon('contact')}
         <h2>내 명함을 등록하세요</h2>
         <p>한 번 등록해 두면 카카오톡, 문자로 바로 보낼 수 있어요.<br>앞면과 뒷면을 모두 찍어 둘 수도 있습니다.</p>
-        <div class="stack">
+        ${isNative ? `<div class="stack">
           ${PHOTO_SOURCES.map((s, i) => `<button class="btn ${i ? '' : 'primary'} block" data-action="mine-add" data-src="${s.value}">${icon(s.icon)}${esc(s.label)}</button>`).join('')}
           <button class="btn ghost block" data-action="mine-add" data-src="manual">${icon('edit')}직접 입력</button>
-        </div>
+        </div>` : `<p>${APP_ONLY_NOTE}</p>`}
         <p class="small-note">${meta.email ? `${esc(meta.email)} 계정의 Google Drive에 함께 저장됩니다.` : 'Google 계정으로 로그인하면 다른 기기에서도 내 명함을 쓸 수 있습니다.'}</p>
       </div>
     </main>`;
@@ -1344,7 +1351,8 @@ function driveStatusHtml() {
 }
 
 // ---------- 설정 (탭: 계정 / 주소록 / 인식 / 데이터) ----------
-const SETTINGS_TABS = [['account', '계정'], ['display', '화면'], ['contacts', '주소록'], ['ocr', '인식'], ['data', '데이터']];
+const SETTINGS_TABS = [['account', '계정'], ['display', '화면'], ['contacts', '주소록'], ['ocr', '인식'], ['data', '데이터']]
+  .filter(([k]) => isNative || k !== 'ocr'); // 웹은 인식을 하지 않음
 
 // ---------- 화면 모드 (시스템 / 라이트 / 다크) ----------
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -1466,25 +1474,9 @@ function settingsContacts() {
       <p class="small-note" style="padding:0 4px">주소록 설정은 내 Google 계정에 저장되어 다른 기기에도 똑같이 적용됩니다.</p>`;
 }
 
+// 앱 전용 (웹은 인식 탭이 없음)
 function settingsOcr(s) {
   return `
-      ${isNative ? '' : `<h2 class="section-title">명함 테두리 맞추기</h2>
-      <section class="panel">
-        <label class="radio-row"><input type="radio" name="crop" value="auto" ${s.cropScreen !== 'off' ? 'checked' : ''}>
-          <span>자동<small>촬영한 사진에서 테두리를 확실히 찾았을 때만 맞추기 화면을 보여 줍니다. 이미 잘린 사진은 그대로 씁니다.</small></span></label>
-        <label class="radio-row"><input type="radio" name="crop" value="off" ${s.cropScreen === 'off' ? 'checked' : ''}>
-          <span>끄기<small>항상 원본 그대로 씁니다. 필요할 때 편집 화면의 [자르기]로 맞추세요.</small></span></label>
-        <details class="help">
-          <summary>갤럭시 카메라로 명함 스캔하는 방법</summary>
-          <ol>
-            <li>처음 한 번: <b>카메라</b> 앱 → ⚙ 설정 → <b>지능형 기능</b> → <b>문서 및 텍스트 스캔</b>을 켭니다. (이전 버전은 <b>장면별 최적 촬영 → 문서 스캔</b>)</li>
-            <li>사진 모드에서 명함을 화면에 크게(10~20cm) 비춥니다. 어두운 바닥 위에 두면 더 잘 잡힙니다.</li>
-            <li>노란 테두리와 <b>스캔</b> 버튼이 나타나면 누릅니다. 반듯하게 잘린 이미지가 갤러리에 저장됩니다.</li>
-            <li>카들리에서 <b>명함 추가 → 갤럭시 카메라로 스캔한 사진</b>을 고르면 자르기 없이 바로 인식합니다.</li>
-          </ol>
-        </details>
-      </section>`}
-
       <h2 class="section-title">글자 인식(OCR) 방식</h2>
       <section class="panel">
         ${isNative ? `<label class="radio-row"><input type="radio" name="ocr" value="mlkit" ${s.ocrEngine === 'mlkit' ? 'checked' : ''}>
