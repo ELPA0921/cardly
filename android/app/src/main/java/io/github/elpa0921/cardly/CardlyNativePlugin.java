@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.content.ContentProviderOperation;
 import android.content.ContentResolver;
 import android.content.ContentUris;
+import android.content.ContentValues;
+import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -24,6 +26,7 @@ import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -343,6 +346,93 @@ public class CardlyNativePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("연락처 저장 실패: " + e.getMessage());
         }
+    }
+
+    /**
+     * 새 연락처: 바로 저장하지 않고, 명함 내용을 채운 '연락처 앱의 새 연락처 편집 화면'을 엽니다.
+     * 사용자가 확인하고 저장하면 { saved: true }, 뒤로 나가면 { saved: false }
+     */
+    @PluginMethod
+    public void openNewContact(PluginCall call) {
+        ArrayList<ContentValues> rows = new ArrayList<>();
+        String name = call.getString("name", "");
+        String company = call.getString("company", "");
+        String displayName = call.getString("displayName", "");
+        if (displayName.isEmpty()) displayName = name.isEmpty() ? company : name;
+        if (!displayName.isEmpty()) {
+            // 이름 전체를 '이름' 칸에 넣어 성/이름으로 잘못 나뉘지 않게 합니다.
+            rows.add(cv(CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE, CommonDataKinds.StructuredName.GIVEN_NAME, displayName));
+        }
+        String department = call.getString("department", "");
+        String title = call.getString("title", "");
+        if (!company.isEmpty() || !department.isEmpty() || !title.isEmpty()) {
+            ContentValues org = cv(CommonDataKinds.Organization.CONTENT_ITEM_TYPE, CommonDataKinds.Organization.COMPANY, company);
+            org.put(CommonDataKinds.Organization.DEPARTMENT, department);
+            org.put(CommonDataKinds.Organization.TITLE, title);
+            org.put(CommonDataKinds.Organization.TYPE, CommonDataKinds.Organization.TYPE_WORK);
+            rows.add(org);
+        }
+        addPhoneCv(rows, call.getString("mobile", ""), CommonDataKinds.Phone.TYPE_MOBILE);
+        addPhoneCv(rows, call.getString("phone", ""), CommonDataKinds.Phone.TYPE_WORK);
+        addPhoneCv(rows, call.getString("fax", ""), CommonDataKinds.Phone.TYPE_FAX_WORK);
+        String email = call.getString("email", "");
+        if (!email.isEmpty()) {
+            ContentValues v = cv(CommonDataKinds.Email.CONTENT_ITEM_TYPE, CommonDataKinds.Email.ADDRESS, email);
+            v.put(CommonDataKinds.Email.TYPE, CommonDataKinds.Email.TYPE_WORK);
+            rows.add(v);
+        }
+        String address = call.getString("address", "");
+        if (!address.isEmpty()) {
+            ContentValues v = cv(CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE, CommonDataKinds.StructuredPostal.FORMATTED_ADDRESS, address);
+            v.put(CommonDataKinds.StructuredPostal.TYPE, CommonDataKinds.StructuredPostal.TYPE_WORK);
+            rows.add(v);
+        }
+        String website = call.getString("website", "");
+        if (!website.isEmpty()) {
+            ContentValues v = cv(CommonDataKinds.Website.CONTENT_ITEM_TYPE, CommonDataKinds.Website.URL, website);
+            v.put(CommonDataKinds.Website.TYPE, CommonDataKinds.Website.TYPE_WORK);
+            rows.add(v);
+        }
+        String memo = call.getString("memo", "");
+        if (!memo.isEmpty()) rows.add(cv(CommonDataKinds.Note.CONTENT_ITEM_TYPE, CommonDataKinds.Note.NOTE, memo));
+        String photo = call.getString("photoBase64");
+        if (photo != null && !photo.isEmpty()) {
+            ContentValues v = new ContentValues();
+            v.put(ContactsContract.Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE);
+            v.put(CommonDataKinds.Photo.PHOTO, Base64.decode(photo, Base64.DEFAULT));
+            rows.add(v);
+        }
+
+        Intent intent = new Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI);
+        intent.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, rows);
+        intent.putExtra("finishActivityOnSaveCompleted", true);
+        try {
+            startActivityForResult(call, intent, "onNewContactResult");
+        } catch (Exception e) {
+            call.reject("연락처 앱을 열 수 없습니다: " + e.getMessage());
+        }
+    }
+
+    @ActivityCallback
+    private void onNewContactResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        JSObject ret = new JSObject();
+        ret.put("saved", result.getResultCode() == Activity.RESULT_OK);
+        call.resolve(ret);
+    }
+
+    private ContentValues cv(String mime, String key, String value) {
+        ContentValues v = new ContentValues();
+        v.put(ContactsContract.Data.MIMETYPE, mime);
+        v.put(key, value);
+        return v;
+    }
+
+    private void addPhoneCv(ArrayList<ContentValues> rows, String number, int type) {
+        if (number == null || number.isEmpty()) return;
+        ContentValues v = cv(CommonDataKinds.Phone.CONTENT_ITEM_TYPE, CommonDataKinds.Phone.NUMBER, number);
+        v.put(CommonDataKinds.Phone.TYPE, type);
+        rows.add(v);
     }
 
     // rawId >= 0 이면 기존 원본 연락처에, 아니면 ops[backRef]로 새로 만든 원본 연락처에 행을 추가

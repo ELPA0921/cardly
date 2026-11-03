@@ -1016,12 +1016,27 @@ function showDetailPhoto(card) {
   });
 }
 
-async function cardPhotoBlobs(card) {
+// 보낼 사진 고르기: 사진이 2장이면 앞면만 / 뒷면만 / 둘 다 중에서 선택 (대표 사진이 먼저)
+// 반환: [{ blob, side }] 또는 null(취소)
+async function pickPhotosToSend(card, title) {
   const photos = store.photosOf(card);
   const main = store.mainPhotoIndex(card);
-  const ordered = [photos[main], ...photos.filter((_, i) => i !== main)].filter(Boolean);
-  const blobs = await Promise.all(ordered.map(p => sync.loadPhoto(p).catch(() => null)));
-  return blobs.filter(Boolean);
+  let indexes = [0];
+  if (photos.length > 1) {
+    const mark = i => (i === main ? ' (대표)' : '');
+    const choice = await sheet({
+      title,
+      items: [
+        { label: `앞면만${mark(0)}`, icon: 'image', value: 'front' },
+        { label: `뒷면만${mark(1)}`, icon: 'image', value: 'back' },
+        { label: '앞면 + 뒷면 모두', icon: 'copy', value: 'both' },
+      ],
+    });
+    if (!choice) return null;
+    indexes = choice === 'front' ? [0] : choice === 'back' ? [1] : [main, 1 - main];
+  }
+  const picked = await Promise.all(indexes.map(async i => ({ blob: await sync.loadPhoto(photos[i]).catch(() => null), side: sideLabel(i) })));
+  return picked.filter(p => p.blob);
 }
 
 async function shareCard(id) {
@@ -1030,7 +1045,10 @@ async function shareCard(id) {
   const photoCount = store.photosOf(c).length;
   const items = [
     { label: '텍스트로 공유', desc: '카카오톡, 문자 등으로 보내기', icon: 'share', value: 'text' },
-    ...(photoCount ? [{ label: '명함 사진 + 정보 보내기', desc: photoCount > 1 ? '앞면·뒷면 사진과 텍스트를 함께' : '명함 사진과 텍스트를 함께', icon: 'image', value: 'photo' }] : []),
+    ...(photoCount ? [
+      { label: '명함 사진만 보내기', desc: photoCount > 1 ? '앞면·뒷면 중 골라서 보내기' : '명함 사진만 보내기', icon: 'image', value: 'photo' },
+      { label: '명함 사진 + 정보 보내기', desc: '사진과 이름·연락처 텍스트를 함께', icon: 'image', value: 'photo-text' },
+    ] : []),
     { label: '텍스트 복사', icon: 'copy', value: 'copy' },
     { label: '연락처 파일(vCard)로 공유', desc: '받는 사람이 바로 주소록에 저장할 수 있어요', icon: 'contact', value: 'vcard' },
   ];
@@ -1038,11 +1056,24 @@ async function shareCard(id) {
   if (choice === 'text') {
     const r = await shareCardText(c);
     if (r === 'copied') toast('공유 기능이 없어 클립보드에 복사했습니다.');
-  } else if (choice === 'photo') {
-    const blobs = await cardPhotoBlobs(c);
-    if (!blobs.length) return toast('사진을 불러오지 못했습니다. Google Drive 연결을 확인해 주세요.', 'error');
-    const r = await sharePhotos(c, blobs);
+  } else if (choice === 'photo' || choice === 'photo-text') {
+    const withText = choice === 'photo-text';
+    const picked = await pickPhotosToSend(c, withText ? '보낼 사진 고르기 (+ 정보)' : '보낼 사진 고르기');
+    if (!picked) return;
+    if (!picked.length) return toast('사진을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.', 'error');
+    const text = withText ? buildShareText(c) : '';
+    // 카카오톡 등은 사진과 글을 함께 받으면 글을 버리므로, 미리 복사해 두고 사진을 보낸 뒤 글을 이어서 보낼 수 있게 함
+    if (withText) await copyText(text).catch(() => {});
+    const r = await sharePhotos(c, picked, text);
     if (r === 'downloaded') toast('이 기기에서는 사진 공유가 안 되어 사진을 내려받았습니다.');
+    if (withText && r === 'shared') {
+      const next = await dialog({
+        title: '정보 텍스트도 보낼까요?',
+        message: '카카오톡처럼 사진만 전달되는 앱도 있어요.\n정보 텍스트를 이어서 보내거나, 이미 복사해 두었으니 대화창에 붙여넣기 해도 됩니다.',
+        buttons: [{ label: '정보 텍스트 보내기', value: true, style: 'primary' }, { label: '괜찮아요', value: false }],
+      });
+      if (next) await shareCardText(c);
+    }
   } else if (choice === 'copy') {
     await copyText(buildShareText(c));
     toast('복사했습니다.');
@@ -1083,8 +1114,15 @@ async function saveToContacts(id) {
     FIELD_KEYS.forEach(k => (fields[k] = c[k] || ''));
     const displayName = contactDisplayName(c);
     const photoBase64 = getUsePhoto() ? await contactPhotoBase64(c) : null;
-    await Native.saveContact({ ...fields, displayName, contactId, ...(photoBase64 ? { photoBase64 } : {}) });
-    toast(`"${displayName}"(으)로 ${contactId ? '주소록 연락처를 덮어썼습니다.' : '주소록에 저장했습니다.'}`);
+    const payload = { ...fields, displayName, ...(photoBase64 ? { photoBase64 } : {}) };
+    if (contactId) {
+      await Native.saveContact({ ...payload, contactId });
+      toast(`"${displayName}"(으)로 주소록 연락처를 덮어썼습니다.`);
+    } else {
+      // 새 연락처는 연락처 앱의 편집 화면을 내용이 채워진 상태로 열고, 사용자가 확인 후 저장
+      const { saved } = await Native.openNewContact(payload);
+      if (saved) toast(`"${displayName}"(으)로 주소록에 저장했습니다.`);
+    }
   } catch (e) {
     toast(e.message || '주소록에 저장하지 못했습니다.', 'error');
   }

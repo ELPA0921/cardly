@@ -15,10 +15,12 @@
         return async (args) => {
           window.__calls.push(name + '.' + String(method));
           (window.__args ||= {})[String(method)] = args;
+          (window.__argLog ||= []).push([name + '.' + String(method), args]);
           if (method === 'findContact') return { matches: window.__fakeMatches || [] };
           if (method === 'recognizeText') return { text: '', lines: [] };
           if (method === 'scanDocument') return { images: [], cancelled: true };
           if (method === 'authorize') return { accessToken: 'fake-token' };
+          if (method === 'openNewContact') return { saved: true };
           return {};
         };
       },

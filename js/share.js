@@ -97,14 +97,15 @@ export function vcardFilename(cards, label) {
   return `명함_${cards.length}명.vcf`;
 }
 
-// 명함 사진(앞면/뒷면) + 정보 텍스트 함께 보내기. 반환: 'shared' | 'downloaded' | 'cancel'
-export async function sharePhotos(card, blobs) {
+// 명함 사진 보내기. photos: [{ blob, side: '앞면'|'뒷면' }], text: 함께 보낼 정보 (없으면 사진만)
+// 반환: 'shared' | 'downloaded' | 'cancel'
+export async function sharePhotos(card, photos, text = '') {
   const base = safeName(card.name || card.company) || '명함';
-  const files = blobs.map((b, i) => new File([b], `${base}${blobs.length > 1 ? (i ? '_뒷면' : '_앞면') : ''}.jpg`, { type: 'image/jpeg' }));
-  if (isNative) return shareNative({ text: buildShareText(card), files: files.map(f => ({ name: f.name, blob: f })) });
+  const files = photos.map(p => new File([p.blob], `${base}_${p.side}.jpg`, { type: 'image/jpeg' }));
+  if (isNative) return shareNative({ text, files: files.map(f => ({ name: f.name, blob: f })) });
   if (navigator.canShare?.({ files })) {
     try {
-      await navigator.share({ files, text: buildShareText(card) });
+      await navigator.share(text ? { files, text } : { files });
       return 'shared';
     } catch (e) {
       if (e.name === 'AbortError') return 'cancel';
