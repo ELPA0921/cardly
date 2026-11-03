@@ -3,6 +3,7 @@ import * as store from './store.js';
 import * as drive from './drive.js';
 import * as idb from './idb.js';
 import { isNative } from './native.js';
+import { AUTH_VERSION } from './config.js';
 
 // state: local(미연결) | auth(재연결 필요) | syncing | synced | offline | error
 let status = { state: 'local', message: '', lastSync: store.getSyncMeta().lastSync || 0 };
@@ -54,7 +55,7 @@ export async function connect() {
       if (photos.some(p => p.fileId)) store.patchCard(c.id, { photos: photos.map(p => ({ ...p, fileId: null })) }, 'sync');
     }
   }
-  store.setSyncMeta({ email: user.emailAddress, displayName: user.displayName });
+  store.setSyncMeta({ email: user.emailAddress, displayName: user.displayName, authVersion: AUTH_VERSION });
   await syncNow();
   return user;
 }

@@ -4,18 +4,19 @@ import * as drive from './drive.js';
 import * as idb from './idb.js';
 import { recognize, normalizeImage } from './ocr.js';
 import { detectCard, warpCard } from './scan.js';
-import { isNative, Native, base64ToBlob } from './native.js';
-import { parseCard, chosung } from './parser.js';
+import { isNative, Native, App, base64ToBlob } from './native.js';
+import { parseCard, chosung, cleanPhone } from './parser.js';
 import { buildShareText, copyText, shareCardText, shareVCard, sharePhotos, downloadBlob } from './share.js';
 import { FIELDS, FIELD_KEYS, fieldLabel } from './fields.js';
 import { icon } from './icons.js';
-import { APP_VERSION } from './config.js';
+import { APP_VERSION, AUTH_VERSION } from './config.js';
 
 const $app = document.getElementById('app');
 const $overlay = document.getElementById('overlay-root');
 const $toast = document.getElementById('toast-root');
 
 const MAX_PHOTOS = 2;
+const PHONE_KEYS = ['mobile', 'phone', 'fax'];
 const ui = { filter: 'all', query: '', sort: 'recent', ...store.getUiPrefs() };
 ui.query = '';
 let draft = null; // 편집 중인 명함
@@ -267,6 +268,7 @@ function render() {
   $overlay.innerHTML = '';
   const { view, id } = route();
   window.scrollTo(0, 0);
+  if (needsLogin()) return renderLogin();
   if (view === 'card') return renderDetail(id);
   if (view === 'edit') return renderEditor(id);
   if (view === 'new') return renderEditor(null);
@@ -276,10 +278,61 @@ function render() {
   return renderList();
 }
 
+// ---------- Google 계정 로그인 ----------
+// 앱은 Google 계정으로 로그인해야 쓸 수 있고, 로그아웃하기 전까지 로그인이 유지됩니다.
+// (웹은 로그인 없이 이 기기에만 저장해서 쓸 수도 있습니다)
+const isLoggedIn = () => !!store.getSyncMeta().email;
+const needsLogin = () => isNative && !isLoggedIn();
+
+const GOOGLE_G = `<svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
+
+function renderLogin() {
+  $app.innerHTML = `
+    <main class="login">
+      <img class="login-logo" src="icons/icon.svg" alt="">
+      <h1>카들리</h1>
+      <p class="login-sub">명함을 찍으면 자동으로 정리되는<br>나만의 명함첩</p>
+      <button class="btn google-btn" data-action="login">${GOOGLE_G}Google 계정으로 로그인</button>
+      <p class="login-error" id="login-error"></p>
+      <p class="small-note">명함과 사진은 로그인한 Google 계정의 Drive<br>'명함관리' 폴더에 저장되어, 휴대폰을 바꿔도 그대로 불러옵니다.</p>
+    </main>`;
+}
+
+async function loginGoogle() {
+  const btn = document.querySelector('[data-action="login"]');
+  if (btn) btn.disabled = true;
+  try {
+    const user = await sync.connect();
+    toast(`${user.emailAddress} 계정으로 로그인했습니다.`);
+    render();
+  } catch (e) {
+    const box = document.getElementById('login-error');
+    if (box) box.textContent = '로그인하지 못했습니다: ' + e.message;
+    else toast(e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+  updateSyncBadge();
+}
+
+// 로그아웃: Drive에 먼저 저장한 뒤 이 기기의 데이터를 지웁니다. (다시 로그인하면 Drive에서 불러옴)
+async function logout() {
+  if (!(await confirmDialog('로그아웃할까요?', '이 기기에 있는 명함은 지워지고, 다시 로그인하면 Google Drive에서 그대로 불러옵니다.', '로그아웃'))) return;
+  await sync.syncNow();
+  if (sync.getStatus().state !== 'synced' &&
+      !(await confirmDialog('Drive에 저장하지 못했어요', `${sync.getStatus().message || '인터넷 연결을 확인해 주세요.'}\n지금 로그아웃하면 아직 저장되지 않은 변경은 사라질 수 있습니다.`, '그래도 로그아웃', true))) return;
+  sync.disconnect();
+  store.resetAll();
+  await idb.clearImages().catch(() => {});
+  draft = null;
+  toast('로그아웃했습니다.');
+  go('#/', { replace: true });
+}
+
 // ---------- 동기화 표시 ----------
 const SYNC_LABEL = {
-  local: ['cloudOff', 'Drive 미연결'],
-  auth: ['alert', '다시 연결'],
+  local: ['cloudOff', '로그인 안 됨'],
+  auth: ['alert', '다시 로그인'],
   syncing: ['refresh', '동기화 중'],
   synced: ['cloudCheck', '동기화됨'],
   offline: ['cloudOff', '오프라인'],
@@ -299,20 +352,10 @@ function updateSyncBadge() {
   }
 }
 
-async function connectDrive() {
-  try {
-    const user = await sync.connect();
-    toast(`${user.emailAddress} 계정의 Google Drive와 연결되었습니다.`);
-  } catch (e) {
-    toast(e.message, 'error');
-  }
-  updateSyncBadge();
-}
-
 async function onSyncClick() {
   const st = sync.getStatus().state;
   if (st === 'local') return go('#/settings');
-  if (st === 'auth') return connectDrive();
+  if (st === 'auth') return loginGoogle();
   if (st === 'error') toast(sync.getStatus().message, 'error');
   await sync.syncNow();
 }
@@ -416,7 +459,7 @@ function renderListItems() {
         ${icon('scan')}
         <h2>첫 명함을 등록해 보세요</h2>
         <p>명함을 촬영하면 이름, 회사, 연락처를 자동으로 읽어옵니다.</p>
-        <button class="btn primary" data-action="capture">${icon('camera')}명함 촬영하기</button>
+        <button class="btn primary" data-action="capture">${icon(isNative ? 'scan' : 'camera')}${isNative ? '명함 스캔하기' : '명함 촬영하기'}</button>
       </div>`;
     return;
   }
@@ -773,9 +816,9 @@ async function assignLine(i) {
   });
   if (!key) return;
   let value = text;
-  if (['mobile', 'phone', 'fax'].includes(key)) {
-    const m = text.match(/[\d+][\d\s().-]{6,}\d/);
-    if (m) value = m[0].trim();
+  if (PHONE_KEYS.includes(key)) {
+    const m = text.match(/[\d+(][\d\s().-]{6,}\d/);
+    value = cleanPhone(m ? m[0] : text);
   } else if (key === 'email') {
     const m = text.replace(/\s*@\s*/g, '@').match(/[^\s@]+@[^\s@]+/);
     if (m) value = m[0];
@@ -824,6 +867,7 @@ async function saveDraft() {
   const d = draft;
   if (!d) return;
   document.querySelectorAll('[data-field]').forEach(el => (d.fields[el.dataset.field] = el.value.trim()));
+  PHONE_KEYS.forEach(k => (d.fields[k] = cleanPhone(d.fields[k])));
   if (!d.isMine) d.favorite = document.getElementById('draft-fav')?.checked || false;
   const f = d.fields;
   if (!FIELD_KEYS.some(k => f[k]) && !d.photos.length) return toast('내용을 입력하거나 사진을 추가해 주세요.', 'error');
@@ -963,7 +1007,7 @@ function showDetailPhoto(card) {
     const box = document.getElementById('detail-photo');
     if (!box || detailView.id !== card.id) return;
     if (blob) box.innerHTML = `<img src="${objectUrl(blob)}" alt="명함 ${sideLabel(detailView.index)}">`;
-    else box.textContent = drive.hasValidToken() ? '사진이 없습니다.' : 'Google Drive에 연결하면 사진을 볼 수 있습니다.';
+    else box.textContent = isLoggedIn() ? '사진을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.' : 'Google 계정으로 로그인하면 사진을 볼 수 있습니다.';
   }).catch(() => {
     const box = document.getElementById('detail-photo');
     if (box) box.textContent = '사진을 불러오지 못했습니다.';
@@ -1121,7 +1165,7 @@ function renderMyCard() {
           ${PHOTO_SOURCES.map((s, i) => `<button class="btn ${i ? '' : 'primary'} block" data-action="mine-add" data-src="${s.value}">${icon(s.icon)}${esc(s.label)}</button>`).join('')}
           <button class="btn ghost block" data-action="mine-add" data-src="manual">${icon('edit')}직접 입력</button>
         </div>
-        <p class="small-note">${meta.email && drive.hasValidToken() ? `${esc(meta.email)} 계정의 Google Drive에 함께 저장됩니다.` : 'Google Drive에 연결하면 다른 기기에서도 내 명함을 쓸 수 있습니다.'}</p>
+        <p class="small-note">${meta.email ? `${esc(meta.email)} 계정의 Google Drive에 함께 저장됩니다.` : 'Google 계정으로 로그인하면 다른 기기에서도 내 명함을 쓸 수 있습니다.'}</p>
       </div>
     </main>`;
 }
@@ -1195,23 +1239,25 @@ function driveStatusHtml() {
   const s = store.getSettings();
   const meta = store.getSyncMeta();
   const st = sync.getStatus();
-  if (!s.googleClientId) {
-    return `<p>Google OAuth 클라이언트 ID를 아래 '고급 설정'에 입력해야 Drive에 연결할 수 있습니다. 연결 전까지는 이 기기에만 저장됩니다.</p>`;
+  if (!isNative && !s.googleClientId) {
+    return `<p>Google OAuth 클라이언트 ID를 아래 '고급 설정'에 입력해야 로그인할 수 있습니다. 로그인 전까지는 이 기기에만 저장됩니다.</p>`;
   }
-  if (st.state === 'local') {
-    return `<div class="status-line bad">${icon('cloudOff')}연결되지 않음</div>
-      <p>연결하면 명함 정보와 사진이 내 Google Drive의 '${esc(s.driveFolderName)}' 폴더에 저장되고, 다른 기기와 자동으로 맞춰집니다.</p>
-      <button class="btn primary block" data-action="connect-drive">${icon('cloud')}Google Drive 연결</button>`;
+  if (!isLoggedIn()) {
+    return `<div class="status-line bad">${icon('user')}로그인하지 않음</div>
+      <p>Google 계정으로 로그인하면 명함과 사진이 내 Google Drive의 '${esc(s.driveFolderName)}' 폴더에 저장되고, 다른 기기와 자동으로 맞춰집니다.</p>
+      <button class="btn google-btn block" data-action="login">${GOOGLE_G}Google 계정으로 로그인</button>`;
   }
-  const label = { auth: '로그인 만료 — 다시 연결이 필요합니다', syncing: '동기화 중…', synced: '동기화됨', offline: '오프라인', error: '동기화 오류' }[st.state];
+  const label = { local: '로그인 필요', auth: '로그인 만료 — 다시 로그인해 주세요', syncing: '동기화 중…', synced: 'Drive와 동기화됨', offline: '오프라인 (연결되면 동기화)', error: '동기화 오류' }[st.state];
   const ok = st.state === 'synced' || st.state === 'syncing';
-  return `<div class="status-line ${ok ? 'ok' : 'bad'}">${icon(ok ? 'cloudCheck' : 'alert')}${label}</div>
-    <p>${esc(meta.displayName || '')} ${meta.email ? `(${esc(meta.email)})` : ''}<br>마지막 동기화: ${st.lastSync ? timeAgo(st.lastSync) : '-'}</p>
+  return `<div class="account-row">${icon('user')}<div><strong>${esc(meta.displayName || '')}</strong><small>${esc(meta.email)}</small></div></div>
+    <div class="status-line ${ok ? 'ok' : 'bad'}">${icon(ok ? 'cloudCheck' : 'alert')}${label}</div>
+    <p>마지막 동기화: ${st.lastSync ? timeAgo(st.lastSync) : '-'}</p>
     ${st.state === 'error' ? `<p style="color:var(--danger)">${esc(st.message)}</p>` : ''}
-    ${st.state === 'auth'
-      ? `<button class="btn primary block" data-action="connect-drive">${icon('cloud')}다시 연결</button>`
+    ${st.state === 'auth' || st.state === 'local'
+      ? `<button class="btn primary block" data-action="login">${icon('user')}다시 로그인</button>`
       : `<button class="btn block" data-action="sync-now">${icon('refresh')}지금 동기화</button>`}
-    <button class="btn ghost block" data-action="disconnect-drive">${icon('logout')}연결 해제</button>`;
+    <button class="btn ghost block" data-action="logout">${icon('logout')}로그아웃</button>
+    ${isNative ? '' : '<p class="small-note">웹 버전은 보안상 약 1시간마다 로그인 확인이 필요합니다. 계속 로그인된 상태로 쓰려면 안드로이드 앱을 이용하세요.</p>'}`;
 }
 
 function renderSettings() {
@@ -1222,7 +1268,7 @@ function renderSettings() {
       <h1>설정</h1>
     </header>
     <main class="page">
-      <h2 class="section-title">Google Drive 저장</h2>
+      <h2 class="section-title">Google 계정</h2>
       <section class="panel"><div class="panel-body" id="drive-status">${driveStatusHtml()}</div></section>
 
       <h2 class="section-title">내 명함</h2>
@@ -1267,7 +1313,7 @@ function renderSettings() {
         <button class="btn block" data-action="export-vcard">${icon('contact')}전체 연락처 파일(vCard) 내보내기</button>
         <button class="btn block" data-action="export-json">${icon('download')}백업 파일 내보내기 (JSON)</button>
         <button class="btn block" data-action="import-json">${icon('upload')}백업 파일 불러오기</button>
-        <button class="btn danger block" data-action="reset-local">${icon('trash')}이 기기의 데이터 지우기</button>
+        ${isLoggedIn() ? '' : `<button class="btn danger block" data-action="reset-local">${icon('trash')}이 기기의 데이터 지우기</button>`}
         <p class="small-note">연락처 파일(.vcf)을 갤럭시에서 열면 주소록에 한꺼번에 저장할 수 있습니다.</p>
       </div></section>
 
@@ -1320,7 +1366,7 @@ document.addEventListener('click', async e => {
     case 'back': return back();
     case 'open': return go(`#/card/${id}`);
     case 'add': return addCard();
-    case 'capture': return pickPhoto('camera', { mode: 'new' });
+    case 'capture': return pickPhoto(PHOTO_SOURCES[0].value, { mode: 'new' });
     case 'mine-add':
       if (el.dataset.src === 'manual') {
         draft = newDraft(null, { mine: true });
@@ -1440,14 +1486,9 @@ document.addEventListener('click', async e => {
     case 'group-menu': return groupMenu(id);
 
     // 설정
-    case 'connect-drive': return connectDrive();
+    case 'login': return loginGoogle();
     case 'sync-now': return sync.syncNow();
-    case 'disconnect-drive':
-      if (await confirmDialog('Google Drive 연결을 해제할까요?', '이 기기의 데이터는 그대로 남고, Drive에 저장된 파일도 지워지지 않습니다.', '연결 해제')) {
-        sync.disconnect();
-        renderSettings();
-      }
-      return;
+    case 'logout': return logout();
     case 'save-advanced': {
       const clientId = document.getElementById('client-id').value.trim();
       store.setSettings({ googleClientId: clientId });
@@ -1482,6 +1523,11 @@ document.addEventListener('input', e => {
     return renderListItems();
   }
   if (t.dataset.field && draft) {
+    // 전화번호 칸은 숫자만 (맨 앞 + 는 국제번호용으로 허용)
+    if (PHONE_KEYS.includes(t.dataset.field)) {
+      const v = t.value.replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
+      if (v !== t.value) t.value = v;
+    }
     draft.fields[t.dataset.field] = t.value;
     draft.touched.add(t.dataset.field);
   }
@@ -1526,6 +1572,7 @@ window.addEventListener('online', () => sync.scheduleSync(500));
 
 store.subscribe(source => {
   if (source !== 'sync') sync.scheduleSync();
+  if (needsLogin()) return;
   const { view } = route();
   if (view === 'list') {
     const y = window.scrollY;
@@ -1539,6 +1586,45 @@ store.subscribe(source => {
   } else if (view === 'edit' || view === 'new') renderDraftGroups();
 });
 sync.onStatus(updateSyncBadge);
+
+// 업데이트로 로그인 방식이 바뀐 경우에만 자동 로그아웃 (명함 데이터는 남김 → 다시 로그인하면 Drive와 합쳐짐)
+const bootMeta = store.getSyncMeta();
+if (bootMeta.email && (bootMeta.authVersion ?? 1) !== AUTH_VERSION) {
+  sync.disconnect();
+  setTimeout(() => toast('앱이 업데이트되어 다시 로그인이 필요합니다.'), 300);
+}
+
+// ---------- 안드로이드 뒤로가기 ----------
+// 열린 창 닫기 → 편집 중이면 취소 확인 → 이전 화면 → 첫 화면에서는 종료 확인
+async function onBackButton() {
+  const top = $overlay.lastElementChild;
+  if (top) {
+    const cancel = top.querySelector('[data-c="cancel"]');
+    if (cancel) cancel.click();
+    else top.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    return;
+  }
+  if (needsLogin()) return confirmExit();
+  const { view } = route();
+  if (view === 'new' || view === 'edit') return cancelEdit();
+  if (view !== 'list') return back();
+  if (ui.query) {
+    ui.query = '';
+    return renderList();
+  }
+  if (ui.filter !== 'all') {
+    ui.filter = 'all';
+    store.setUiPrefs({ filter: 'all' });
+    return renderList();
+  }
+  return confirmExit();
+}
+
+async function confirmExit() {
+  if (await confirmDialog('카들리를 종료할까요?', '', '종료')) App.exitApp();
+}
+
+if (isNative) App.addListener('backButton', onBackButton);
 
 render();
 sync.refreshStatus();

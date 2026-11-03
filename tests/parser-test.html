@@ -29,7 +29,7 @@ const cases = [
       { text: 'E. gdhong@cjeng.kr', height: 18 },
       { text: 'www.cjeng.kr', height: 18 },
     ],
-    expect: { name: '홍길동', company: '창조이엔지 주식회사', department: '영업팀', title: '부장', phone: '02-1234-5678', fax: '02-1234-5679', mobile: '010-9876-5432', email: 'gdhong@cjeng.kr', website: 'www.cjeng.kr', address: '서울특별시 강남구 테헤란로 123, 5층' },
+    expect: { name: '홍길동', company: '창조이엔지 주식회사', department: '영업팀', title: '부장', phone: '0212345678', fax: '0212345679', mobile: '01098765432', email: 'gdhong@cjeng.kr', website: 'www.cjeng.kr', address: '서울특별시 강남구 테헤란로 123, 5층' },
   },
   {
     name: '라벨 없음 + (주) + 이름/직책 한 줄',
@@ -40,7 +40,7 @@ const cases = [
 010.2345.6789
 031-8017-1234
 minsu.kim@hanbitsw.com`,
-    expect: { name: '김민수', title: '대표이사', company: '(주)한빛소프트웨어', mobile: '010-2345-6789', phone: '031-8017-1234', email: 'minsu.kim@hanbitsw.com', address: '경기도 성남시 분당구 판교역로 235 에이치스퀘어 N동 7층' },
+    expect: { name: '김민수', title: '대표이사', company: '(주)한빛소프트웨어', mobile: '01023456789', phone: '03180171234', email: 'minsu.kim@hanbitsw.com', address: '경기도 성남시 분당구 판교역로 235 에이치스퀘어 N동 7층' },
   },
   {
     name: '영문 라벨 + 국제번호',
@@ -52,7 +52,7 @@ E-mail: lee@abc-eng.co.kr
 설계본부 수석연구원
 이 영 희
 부산광역시 해운대구 센텀중앙로 97`,
-    expect: { name: '이영희', phone: '02-555-1234', mobile: '010-1111-2222', fax: '02-555-1235', email: 'lee@abc-eng.co.kr', company: '에이비씨엔지니어링', department: '설계본부', title: '수석연구원', address: '부산광역시 해운대구 센텀중앙로 97' },
+    expect: { name: '이영희', phone: '025551234', mobile: '01011112222', fax: '025551235', email: 'lee@abc-eng.co.kr', company: '에이비씨엔지니어링', department: '설계본부', title: '수석연구원', address: '부산광역시 해운대구 센텀중앙로 97' },
   },
   {
     name: '휴대폰/전화 한글 라벨, 대표번호',
@@ -61,7 +61,7 @@ E-mail: lee@abc-eng.co.kr
 전화 1588-1234   휴대폰 010 3333 4444
 팩스 02-777-8888
 park@daehan.com`,
-    expect: { company: '㈜대한건설', name: '박지성', title: '과장', department: '공무팀', phone: '1588-1234', mobile: '010-3333-4444', fax: '02-777-8888', email: 'park@daehan.com' },
+    expect: { company: '㈜대한건설', name: '박지성', title: '과장', department: '공무팀', phone: '15881234', mobile: '01033334444', fax: '027778888', email: 'park@daehan.com' },
   },
   {
     name: '영문 명함',
@@ -70,7 +70,7 @@ John Smith
 Senior Manager
 john.smith@globaltech.com
 +82 10-5555-6666`,
-    expect: { company: 'GLOBAL TECH SOLUTIONS INC.', name: 'John Smith', title: 'Senior Manager', mobile: '010-5555-6666', email: 'john.smith@globaltech.com' },
+    expect: { company: 'GLOBAL TECH SOLUTIONS INC.', name: 'John Smith', title: 'Senior Manager', mobile: '01055556666', email: 'john.smith@globaltech.com' },
   },
 ];
 
@@ -88,9 +88,10 @@ for (const c of cases) {
 // 기타 유틸
 const misc = [
   ['email OCR 공백 보정', parseCard({ text: '£ gdhong@cjeng kr' }).email, 'gdhong@cjeng.kr'],
-  ['formatPhone 02', formatPhone('0212345678'), '02-1234-5678'],
-  ['formatPhone 010', formatPhone('01012345678'), '010-1234-5678'],
-  ['formatPhone 070', formatPhone('070 1234 5678'), '070-1234-5678'],
+  ['formatPhone 02', formatPhone('02-1234-5678'), '0212345678'],
+  ['formatPhone 010 괄호', formatPhone('(010) 1234-5678'), '01012345678'],
+  ['formatPhone +82', formatPhone('+82 10-1234-5678'), '01012345678'],
+  ['formatPhone +82 서울', formatPhone('+8225551234'), '025551234'],
   ['chosung', chosung('홍길동'), 'ㅎㄱㄷ'],
   ['splitName', JSON.stringify(splitName('남궁민수')), JSON.stringify({ family: '남궁', given: '민수' })],
   ['shareText', buildShareText({ name: '홍길동', company: '창조이엔지', title: '부장' }), '이름: 홍길동\n회사명: 창조이엔지\n직책: 부장'],

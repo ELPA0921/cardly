@@ -49,15 +49,14 @@ const HANGUL_RE = /[가-힣]/;
 const onlyHangul = s => /^[가-힣]+$/.test(s);
 const digits = s => s.replace(/\D/g, '');
 
-export function formatPhone(raw) {
-  let d = digits(raw);
-  if (d.startsWith('82') && d.length >= 11) d = '0' + d.slice(2);
-  if (/^1[5-8]\d{6}$/.test(d)) return `${d.slice(0, 4)}-${d.slice(4)}`;
-  if (d.startsWith('02') && (d.length === 9 || d.length === 10)) return `02-${d.slice(2, -4)}-${d.slice(-4)}`;
-  if (/^0(50\d)/.test(d) && d.length >= 11) return `${d.slice(0, 4)}-${d.slice(4, -4)}-${d.slice(-4)}`;
-  if (/^0\d{2}/.test(d) && (d.length === 10 || d.length === 11)) return `${d.slice(0, 3)}-${d.slice(3, -4)}-${d.slice(-4)}`;
-  return raw.trim();
+// 전화번호는 하이픈·괄호·공백 없이 숫자만 저장합니다. (+82 국가번호는 0으로 바꿈)
+export function cleanPhone(raw) {
+  const s = String(raw || '').trim();
+  let d = digits(s);
+  if ((s.startsWith('+82') && d.length >= 9) || (d.startsWith('82') && d.length >= 11)) d = '0' + d.slice(2).replace(/^0/, '');
+  return d;
 }
+export const formatPhone = cleanPhone;
 
 function phoneKind(before) {
   const b = before.slice(-16);

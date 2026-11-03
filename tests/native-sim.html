@@ -8,15 +8,33 @@
   <script>
     // 안드로이드 앱(Capacitor) 환경을 흉내 냅니다. 실제 네이티브 기능 대신 기록만 남깁니다.
     window.__calls = [];
+    window.__listeners = {};
     const fake = name => new Proxy({}, {
-      get: (_, method) => async (args) => {
-        window.__calls.push(name + '.' + String(method));
-        if (method === 'findContact') return { matches: [] };
-        if (method === 'recognizeText') return { text: '', lines: [] };
-        if (method === 'scanDocument') return { images: [], cancelled: true };
-        return {};
+      get: (_, method) => {
+        if (method === 'addListener') return (event, cb) => ((window.__listeners[event] = cb), { remove() {} });
+        return async (args) => {
+          window.__calls.push(name + '.' + String(method));
+          if (method === 'findContact') return { matches: [] };
+          if (method === 'recognizeText') return { text: '', lines: [] };
+          if (method === 'scanDocument') return { images: [], cancelled: true };
+          if (method === 'authorize') return { accessToken: 'fake-token' };
+          return {};
+        };
       },
     });
+    // Google Drive API 흉내 (로그인 → 동기화 흐름 확인용)
+    const realFetch = window.fetch.bind(window);
+    window.__drive = { files: {} };
+    window.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (!u.includes('googleapis.com')) return realFetch(url, opts);
+      const json = obj => new Response(JSON.stringify(obj), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (u.includes('/about')) return json({ user: { displayName: '테스트 사용자', emailAddress: 'tester@example.com' } });
+      if (u.includes('/files?') && (!opts.method || opts.method === 'GET')) return json({ files: [] });
+      if (u.includes('alt=media')) return json({ cards: [], groups: [] });
+      if (opts.method === 'POST') { const id = 'f' + Math.random().toString(36).slice(2, 8); window.__drive.files[id] = true; return json({ id }); }
+      return json({ id: 'x', trashed: false });
+    };
     window.Capacitor = {
       isNativePlatform: () => true,
       getPlatform: () => 'android',

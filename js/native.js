@@ -5,6 +5,7 @@ export const isNative = !!Cap?.isNativePlatform?.();
 
 const plugin = name => (isNative ? Cap.Plugins?.[name] || Cap.registerPlugin(name) : null);
 export const Native = plugin('CardlyNative'); // 문서 스캐너, 글자 인식, Google 권한, 주소록
+export const App = plugin('App'); // 뒤로가기 버튼, 앱 종료
 const Share = plugin('Share');
 const Filesystem = plugin('Filesystem');
 
