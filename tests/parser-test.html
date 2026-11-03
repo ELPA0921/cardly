@@ -169,6 +169,40 @@ E—mail : sample @example, com`,
     expect: { name: '이재명', title: '부장' },
   },
   {
+    name: '직책에 성이 붙어 인식 ("대리서 민 호") + 왼쪽 제품 목록 + 영문 그룹명',
+    lines: [
+      { text: 'Motovario 감속기', height: 22 }, { text: '하이포이드 감속기', height: 22 }, { text: '서보모터', height: 22 },
+      { text: 'PLC', height: 22 }, { text: '모터', height: 22 }, { text: '인버터', height: 22 }, { text: '기어드모터', height: 22 },
+      { text: '영업2팀', height: 30 },
+      { text: '대리서 민 호', height: 42 },
+      { text: '한국기어모터', height: 68 },
+      { text: 'FA MOTOR GROUP', height: 30 },
+      { text: 'TEL: (032) 555-1111 (ft)', height: 26 },
+      { text: 'ABC', height: 40 },
+      { text: '인천시 남동구 남동서로 100 (고잔동, 남동공단 10B 1L)', height: 24 },
+      { text: 'TEL: (032) 555-2222 (직통)', height: 26 },
+      { text: 'FAX: (032) 555-3333', height: 26 },
+      { text: 'H·P: 010-1234-5678', height: 26 },
+      { text: 'http : www.abcfa.com', height: 26 },
+      { text: 'E-mail : sales2@abcfa.com', height: 26 },
+    ],
+    expect: {
+      name: '서민호', title: '대리', department: '영업2팀', company: '한국기어모터', phone: '032-555-1111', fax: '032-555-3333',
+      mobile: '010-1234-5678', website: 'www.abcfa.com', email: 'sales2@abcfa.com', address: '인천시 남동구 남동서로 100 (고잔동, 남동공단 10B 1L)',
+    },
+  },
+  {
+    name: '직책과 이름이 한 글자씩 띄어 인식 ("대 리 서 민 호", 글자 크기 없음)',
+    text: `서보모터
+기어드모터
+영업2팀
+대 리 서 민 호
+한국기어모터
+FA MOTOR GROUP
+H·P: 010-1234-5678`,
+    expect: { name: '서민호', title: '대리', company: '한국기어모터' },
+  },
+  {
     name: '번호 뒤에 라벨',
     text: `02-1234-5678 (TEL)
 02-1234-5679 (FAX)

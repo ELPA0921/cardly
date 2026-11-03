@@ -9,7 +9,7 @@ const TITLES_KO = [
   '실장', '본부장', '센터장', '소장', '현장소장', '지점장', '공장장', '원장', '국장', '처장', '단장', '그룹장',
   '부문장', '사업부장', '총괄', '책임연구원', '선임연구원', '수석연구원', '주임연구원', '연구원', '책임', '선임',
   '수석', '전임', '매니저', '프로', '위원', '교수', '부교수', '조교수', '박사', '변호사', '변리사', '세무사',
-  '회계사', '노무사', '법무사', '건축사', '기술사', '감리원', '디자이너', '엔지니어', '컨설턴트', '대표원장',
+  '회계사', '노무사', '법무사', '건축사', '기술사', '감리원', '디자이너', '엔지니어', '컨설턴트', '대표원장', '이사장',
 ].sort((a, b) => b.length - a.length);
 const TITLES_EN = new Set(['ceo', 'cto', 'cfo', 'coo', 'cio', 'cmo', 'pm', 'pl', 'vp', 'svp', 'evp']);
 const EN_TITLE_RE =
@@ -20,7 +20,7 @@ const DEPT_RE = /(팀|부|본부|실|센터|사업부|사업본부|사업단|부
 const KO_COMPANY_STRONG = /\(주\)|㈜|주식회사|\(유\)|유한회사|유한책임회사|\(사\)|사단법인|\(재\)|재단법인|합자회사|합명회사|법무법인|회계법인|세무법인|특허법인|협동조합/;
 const EN_COMPANY_STRONG = /\b(co\.?,?\s*ltd|corp(oration)?|inc|llc|limited|company|gmbh|holdings)\b/i;
 const COMPANY_WEAK =
-  /(엔지니어링|이엔지|건설|건축|산업|전자|전기|통신|기술|테크|솔루션|시스템|컨설팅|설계|디자인|물산|상사|제약|화학|중공업|에너지|코리아|은행|증권|보험|캐피탈|투자|자산운용|병원|의원|약국|재단|협회|공사|공단|학교|대학교|연구원|연구소|미디어|엔터|홀딩스|그룹|네트웍스|네트워크|소프트|랩스|플랫폼|인터내셔널|글로벌|무역|유통|물류|개발|종합|토건|환경|플랜트|\bENG\b|E&C|\bKorea\b|\bGroup\b|\bSystems?\b|\bSolutions?\b|\bTechnolog(?:y|ies)\b|\bTech\b|\bEngineering\b|\bConstruction\b|\bConsulting\b|\bNetworks?\b|\bSoftware\b|\bLabs?\b|\bGlobal\b|\bInternational\b)/i;
+  /(엔지니어링|이엔지|건설|건축|산업|전자|전기|통신|기술|테크|솔루션|시스템|컨설팅|설계|디자인|물산|상사|제약|화학|중공업|에너지|코리아|^한국[가-힣]{2,}|은행|증권|보험|캐피탈|투자|자산운용|병원|의원|약국|재단|협회|공사|공단|학교|대학교|연구원|연구소|미디어|엔터|홀딩스|그룹|네트웍스|네트워크|소프트|랩스|플랫폼|인터내셔널|글로벌|무역|유통|물류|개발|종합|토건|환경|플랜트|\bENG\b|E&C|\bKorea\b|\bGroup\b|\bSystems?\b|\bSolutions?\b|\bTechnolog(?:y|ies)\b|\bTech\b|\bEngineering\b|\bConstruction\b|\bConsulting\b|\bNetworks?\b|\bSoftware\b|\bLabs?\b|\bGlobal\b|\bInternational\b)/i;
 
 const TOP_SURNAMES = new Set('김이박최정강조윤장임한오서신권황안송류유전홍고문양손배백허남심노하곽성차주우구민진나지엄채원천방공현함변염'.split(''));
 const SURNAMES = new Set([
@@ -173,21 +173,33 @@ function cleanLine(text) {
 }
 
 // "홍 길 동" / "金 道 吉" 처럼 한 글자씩 띄어 인식된 한글·한자를 붙입니다.
+// 직책과 이름이 한 줄에 띄어 있으면 나눠 붙임: "대 리 서 민 호" / "대리서 민 호"(직책에 성이 붙어 인식) → "대리 서민호"
 function joinSpacedHangul(text) {
+  const single = t => t.length === 1 && (HANGUL_RE.test(t) || HANJA_RE.test(t));
   const tokens = text.split(' ');
   const out = [];
   for (let i = 0; i < tokens.length; ) {
     let j = i;
-    while (j < tokens.length && tokens[j].length === 1 && (HANGUL_RE.test(tokens[j]) || HANJA_RE.test(tokens[j]))) j++;
-    if (j - i >= 2 && j - i <= 4) {
-      out.push(tokens.slice(i, j).join(''));
-      i = j;
-    } else if (j > i) {
-      out.push(...tokens.slice(i, j));
-      i = j;
-    } else {
-      out.push(tokens[i++]);
+    while (j < tokens.length && single(tokens[j])) j++;
+    if (j === i) {
+      const tok = tokens[i];
+      while (j + 1 < tokens.length && single(tokens[j + 1])) j++;
+      const glued = j - i >= 1 && j - i <= 3 && !TITLES_KO.includes(tok) &&
+        TITLES_KO.find(t => tok.length === t.length + 1 && tok.startsWith(t) && SURNAMES.has(tok.at(-1)));
+      if (glued) {
+        out.push(glued, tok.at(-1) + tokens.slice(i + 1, j + 1).join(''));
+        i = j + 1;
+      } else out.push(tokens[i++]);
+      continue;
     }
+    const run = tokens.slice(i, j);
+    const joined = run.join('');
+    i = j;
+    const title = run.length > 4 &&
+      TITLES_KO.find(t => (joined.startsWith(t) || joined.endsWith(t)) && joined.length - t.length >= 2 && joined.length - t.length <= 4);
+    if (run.length >= 2 && run.length <= 4) out.push(joined);
+    else if (title) out.push(...(joined.startsWith(title) ? [title, joined.slice(title.length)] : [joined.slice(0, -title.length), title]));
+    else out.push(...run);
   }
   return out.join(' ');
 }
@@ -250,6 +262,7 @@ function nameScore(tok, line, ctx) {
   else if (SURNAMES.has(tok[0])) score += 1;
   else score -= 2;
   if (tok.length === 3) score += 1;
+  if (tok.length === 4 && !compound) score -= 1; // 네 글자는 복성(남궁·황보…)이 아니면 대개 이름이 아님 (서보모터)
   if (line.tokens.length <= 3) score += 1;
   if (line.tokens.length === 1) score += 1;
   if (line.tokens.some(t => koTitleOf(t))) score += 2;
@@ -381,7 +394,7 @@ export function parseCard(input) {
     // 이어지는 줄(도로명 주소, 건물·호수)은 두 줄까지 붙임
     for (let k = pos + 1; k <= pos + 2; k++) {
       const next = lines[k];
-      if (!next || next.used || KO_COMPANY_STRONG.test(next.text)) break;
+      if (!next || next.used || next.contact || KO_COMPANY_STRONG.test(next.text)) break; // 번호를 뺀 "(직통)" 같은 줄은 제외
       if (!/(\d+\s*층|\d+\s*호|빌딩|타워|센터|센타|플라자|오피스|B\/D|\(우\)|^\(.*\)$|\b\d{5}\b|[가-힣\d]+(로|길)\s*\d)/.test(next.text)) break;
       address += ' ' + next.text;
       next.used = true;
