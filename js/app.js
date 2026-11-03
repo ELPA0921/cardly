@@ -627,7 +627,9 @@ function renderEditor(id) {
     const input = f.multiline
       ? `<textarea data-field="${f.key}" placeholder="${esc(f.placeholder)}" rows="3">${v}</textarea>`
       : `<input data-field="${f.key}" type="${f.type || 'text'}" value="${v}" placeholder="${esc(f.placeholder)}" ${f.type === 'tel' ? 'inputmode="tel"' : ''} autocomplete="off">`;
-    return `<label class="field"><span>${esc(f.label)}</span>${input}</label>`;
+    // 오른쪽 끝 ✕: 내용이 있을 때만 보이고, 누르면 그 칸을 비움
+    const clear = `<button type="button" class="clear-btn" data-action="clear-field" data-key="${f.key}" tabindex="-1" aria-label="${esc(f.label)} 지우기">${icon('x')}</button>`;
+    return `<label class="field"><span>${esc(f.label)}</span><div class="input-wrap">${input}${clear}</div></label>`;
   };
   const byKey = k => FIELDS.find(f => f.key === k);
   const title = d.isMine ? (card ? '내 명함 편집' : '내 명함 등록') : card ? '명함 편집' : '새 명함';
@@ -1598,6 +1600,14 @@ document.addEventListener('click', async e => {
       return p?.blob && viewImage(objectUrl(p.blob));
     }
     case 'assign-line': return assignLine(+el.dataset.i);
+    case 'clear-field': {
+      const input = document.querySelector(`[data-field="${el.dataset.key}"]`);
+      if (!input || !draft) return;
+      input.value = '';
+      draft.fields[el.dataset.key] = '';
+      draft.touched.add(el.dataset.key);
+      return input.focus();
+    }
     case 'toggle-draft-group': {
       const i = draft.groupIds.indexOf(id);
       i >= 0 ? draft.groupIds.splice(i, 1) : draft.groupIds.push(id);
