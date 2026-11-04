@@ -209,6 +209,35 @@ H·P: 010-1234-5678`,
 010-9876-5432 H.P`,
     expect: { phone: '02-1234-5678', fax: '02-1234-5679', mobile: '010-9876-5432' },
   },
+  {
+    // 실제 명함 (FESTO): 고객지원센터 번호 라벨을 부서로, 기술지원 공용 메일을 개인 메일로 착각하던 문제
+    name: '외국계 명함: 고객지원센터 라벨, 공용 메일, 영문 직책',
+    text: `FESTO
+민 경 현
+한국훼스토주식회사
+TEC Seoul
+Controlled Pneumatics
+Mechanical Product Design Engineer
+서울특별시 영등포구 문래로 28길 25
+N타워 12층
+http://www.festo.co.kr
+고객지원센터:1666-0202
+기술지원 supportkr@festo.com
+Tel (02)850-7111
+Mobile 010-9900-0291
+E-mail kyounghyun.min@festo.com`,
+    expect: {
+      name: '민경현', company: '한국훼스토주식회사', department: '', title: 'Mechanical Product Design Engineer',
+      email: 'kyounghyun.min@festo.com', mobile: '010-9900-0291', phone: '02-850-7111',
+      address: '서울특별시 영등포구 문래로 28길 25 N타워 12층', website: 'http://www.festo.co.kr',
+    },
+  },
+  {
+    name: '공용 메일만 있으면 그거라도',
+    text: `홍길동 과장
+info@abc-eng.co.kr`,
+    expect: { name: '홍길동', email: 'info@abc-eng.co.kr' },
+  },
 ];
 
 const out = document.getElementById('out');

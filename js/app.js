@@ -588,16 +588,21 @@ async function addCard({ mine = false } = {}) {
   });
   if (choice && choice !== 'manual') pickPhoto(choice, { mode: 'new', mine });
   else if (choice === 'manual') {
-    draft = newDraft(null, { mine });
+    draft = newDraft(null, { mine, prefillEmail: true });
     go('#/new');
   }
 }
 
-function newDraft(card = null, { mine = false } = {}) {
+function newDraft(card = null, { mine = false, prefillEmail = false } = {}) {
   const fields = {};
   FIELD_KEYS.forEach(k => (fields[k] = card?.[k] || ''));
   const isMine = card ? !!card.isMine : mine;
-  if (!card && mine) fields.email = store.getSyncMeta().email || '';
+  // 내 명함을 '직접 입력'할 때만 로그인 계정 이메일을 미리 채움 (스캔하면 명함에 적힌 이메일을 씀)
+  const prefilled = new Set();
+  if (!card && mine && prefillEmail && store.getSyncMeta().email) {
+    fields.email = store.getSyncMeta().email;
+    prefilled.add('email');
+  }
   const main = card ? store.mainPhotoIndex(card) : 0;
   return {
     forId: card?.id || 'new',
@@ -616,6 +621,7 @@ function newDraft(card = null, { mine = false } = {}) {
     ocrTexts: {}, // 사진 id → 인식 원문
     ocrFilled: {}, // 항목 → 그 값을 채운 사진 id
     runs: {},
+    prefilled, // 자동으로 미리 채운 항목 (명함에서 읽은 값이 있으면 덮어씀)
     baseOcrText: card?.ocrText || '',
   };
 }
@@ -844,9 +850,10 @@ async function runOcr(photoId) {
       if (!parsed[k] || d.touched.has(k)) continue;
       const cur = d.fields[k];
       if (k === 'memo' && cur && d.ocrFilled.memo !== photoId) continue;
-      if (cur && d.ocrFilled[k] !== photoId) continue;
+      if (cur && d.ocrFilled[k] !== photoId && !d.prefilled?.has(k)) continue;
       d.fields[k] = parsed[k];
       d.ocrFilled[k] = photoId;
+      d.prefilled?.delete(k);
       filled++;
     }
     d.ocrTexts[photoId] = res.text;
@@ -1758,7 +1765,7 @@ document.addEventListener('click', async e => {
     case 'capture': return pickPhoto(PHOTO_SOURCES[0].value, { mode: 'new' });
     case 'mine-add':
       if (el.dataset.src === 'manual') {
-        draft = newDraft(null, { mine: true });
+        draft = newDraft(null, { mine: true, prefillEmail: true });
         return go('#/new');
       }
       return pickPhoto(el.dataset.src, { mode: 'new', mine: true });

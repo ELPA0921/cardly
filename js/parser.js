@@ -38,6 +38,11 @@ const NAME_STOPWORDS = new Set([
 const FREE_MAIL = new Set(['gmail', 'naver', 'daum', 'hanmail', 'kakao', 'hotmail', 'outlook', 'yahoo', 'nate', 'icloud', 'me', 'live']);
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+// 회사 공용 메일 (개인 메일이 따로 있으면 그쪽을 씀): support@, info@, sales@ …
+const GENERIC_MAIL_RE = /^(support|info|help|contact|sales|admin|cs|service|office|webmaster|master|no-?reply|marketing|hr|recruit|tech|biz|customer|order|inquiry)/i;
+// 번호·메일 앞에 붙는 안내용 이름표 (부서나 이름이 아님): "고객지원센터: 1666-0202", "기술지원 support@…"
+const CONTACT_LABEL_RE =
+  /^(고객\s*지원\s*센터|고객\s*센터|고객\s*지원|고객\s*상담|기술\s*지원|기술\s*문의|대표\s*전화|대표\s*번호|대표|콜\s*센터|상담\s*센터|상담|문의|A\/?S(\s*센터)?|서비스\s*센터|support|customer(\s*(service|center|support))?|service(\s*center)?|hotline|call\s*center)$/i;
 const PHONE_RE = /(?<!\d)(?:\(?0\d{1,3}\)?[\s.\-)]{0,3}\d{3,4}[\s.\-]{0,3}\d{4}|1[5-8]\d{2}[\s.\-]\d{4})(?!\d)/g;
 const WEB_RE =
   /(?:https?:\/\/)?(?:www\.)?[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:co\.kr|or\.kr|go\.kr|ac\.kr|re\.kr|ne\.kr|com|net|org|kr|io|biz|info|co|me|ai|jp|cn)(?:\/[^\s]*)?(?![a-z0-9])/i;
@@ -285,16 +290,26 @@ export function parseCard(input) {
   const ctx = { median: heights.length ? heights[Math.floor(heights.length / 2)] : 0 };
   const extraNumbers = [];
 
-  // 1) 이메일
+  // 1) 이메일 — 여러 개면 개인 메일 우선 ("E-mail" 라벨 +, support@·info@ 같은 공용 메일이나 "기술지원" 줄은 -)
+  const emails = [];
   for (const l of lines) {
     // "name @ abc kr" 처럼 OCR이 점을 공백으로 읽은 경우도 보정
     const t = l.text.replace(/\s*@\s*/g, '@').replace(/(@[A-Za-z0-9.-]+)[\s,]+(co\.kr|com|net|org|kr)\b/gi, '$1.$2');
-    const found = t.match(EMAIL_RE);
-    if (!found) continue;
-    if (!result.email) result.email = found[0].toLowerCase();
+    const found = [...t.matchAll(EMAIL_RE)];
+    if (!found.length) continue;
+    for (const m of found) {
+      const email = m[0].toLowerCase();
+      const before = t.slice(0, m.index);
+      let score = 0;
+      if (/(e-?mail|이메일|메일|^\s*e)\s*[.:)\]]?\s*$/i.test(before)) score += 3;
+      if (GENERIC_MAIL_RE.test(email.split('@')[0])) score -= 3;
+      if (CONTACT_LABEL_RE.test(before.trim().replace(/[:：.]\s*$/, ''))) score -= 2;
+      emails.push({ email, score });
+    }
     l.text = t.replace(EMAIL_RE, ' ').trim();
     l.contact = true;
   }
+  if (emails.length) result.email = emails.reduce((a, b) => (b.score > a.score ? b : a)).email;
 
   // 2) 전화번호 (라벨 TEL/FAX/H.P 등으로 구분, 없으면 010 → 휴대폰)
   //  strength 2: 라벨대로 / 1: TEL 라벨이지만 010 번호라 휴대폰으로 / 0: 라벨 없음
@@ -358,8 +373,12 @@ export function parseCard(input) {
 
   for (const l of lines) {
     if (l.contact) {
+      const raw = l.text.trim();
       l.text = cleanLine(l.text.replace(LABEL_RE, ' '));
-      if (isLeftoverJunk(l.text)) l.used = true;
+      // 번호·메일을 뺀 나머지가 "고객지원센터:" 같은 안내용 이름표면 버림 (부서로 착각하지 않게)
+      const label = l.text.replace(/[:：.]\s*$/, '').trim();
+      const isLabel = CONTACT_LABEL_RE.test(label) || (/[:：]\s*$/.test(raw) && label.replace(/\s/g, '').length <= 8);
+      if (isLeftoverJunk(l.text) || isLabel) l.used = true;
     }
   }
 
@@ -458,7 +477,13 @@ export function parseCard(input) {
   if (titleLine) result.title = titleTokens.filter(t => t.line === titleLine).map(t => t.tok).join(' ');
   else {
     const enLine = lines.find(l => !l.used && !HANGUL_RE.test(l.text) && EN_TITLE_RE.test(l.text));
-    if (enLine) result.title = enLine.text.match(EN_TITLE_RE)[0];
+    if (enLine) {
+      // "Mechanical Product Design Engineer" 처럼 직책 단어로 끝나는 짧은 줄은 줄 전체가 직책
+      const m = enLine.text.match(EN_TITLE_RE)[0];
+      const whole = enLine.text.trim();
+      const words = whole.split(/\s+/).length;
+      result.title = words <= 6 && whole.toLowerCase().endsWith(m.toLowerCase()) && /^[A-Za-z][A-Za-z&/.\- ]*$/.test(whole) ? whole : m;
+    }
   }
 
   if (deptTokens.length) {

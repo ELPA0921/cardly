@@ -12,7 +12,7 @@ export const DEFAULT_CONFIG = {
   driveFolderName: '카들리',
 };
 
-export const APP_VERSION = '0.9.8';
+export const APP_VERSION = '0.9.9';
 
 // 로그인 방식이 바뀌어 업데이트 후 다시 로그인해야 할 때만 이 숫자를 올립니다.
 // (올리면 기존 사용자는 자동으로 로그아웃되고 로그인 화면이 나옵니다. 명함 데이터는 지워지지 않습니다.)
