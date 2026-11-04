@@ -1,7 +1,7 @@
 // 명함 항목 정의 (편집 화면, 공유 텍스트, vCard에서 공통으로 사용)
 export const FIELDS = [
   { key: 'name', label: '이름', icon: 'user', placeholder: '홍길동' },
-  { key: 'company', label: '회사명', icon: 'building', placeholder: '카들리' },
+  { key: 'company', label: '회사명', icon: 'building', placeholder: '(주)카들리' },
   { key: 'department', label: '부서', icon: 'folder', placeholder: '영업팀' },
   { key: 'title', label: '직책', icon: 'tag', placeholder: '부장' },
   { key: 'mobile', label: '휴대폰', icon: 'phone', type: 'tel', placeholder: '010-1234-5678' },
