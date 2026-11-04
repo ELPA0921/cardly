@@ -400,6 +400,17 @@ mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: i
 .radio-row:first-child { border-top: 0; }
 .radio-row input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--primary); }
 .radio-row small { display: block; color: var(--text-3); font-size: 12.5px; }
+.section-desc { margin: -2px 4px 10px; color: var(--text-3); font-size: 12.5px; line-height: 1.5; }
+/* 눌러서 아래 시트로 고르는 설정 줄: 왼쪽 이름, 오른쪽 현재 값 › */
+.pick-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 14px 12px 14px 16px; border: 0; border-top: 1px solid var(--border); background: none; text-align: left; cursor: pointer;
+}
+.panel-title + .pick-row { border-top: 0; margin-top: 2px; }
+.pick-row:active { background: var(--surface-2); }
+.pick-row > span:first-child { flex: none; font-size: 15px; }
+.pick-value { flex: 1; min-width: 0; text-align: right; color: var(--primary); font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-row .icon { width: 18px; height: 18px; color: var(--text-3); flex: none; }
 .status-line { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 10px; }
 .status-line .icon { width: 18px; height: 18px; }
 .status-line.ok { color: var(--success); }

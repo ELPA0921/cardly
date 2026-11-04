@@ -493,19 +493,33 @@ function renderList() {
 }
 
 // 명함 목록 둘째·셋째 줄에 보여 줄 항목 (설정 > 화면, 내 모든 기기에 공통)
+// 각 줄은 '표시 항목'과, 그 항목이 비어 있을 때 대신 보여 줄 '미기재 시 대체' 항목으로 정함
 const LIST_LINES = [
   ['companyDept', '회사명 · 부서'], ['company', '회사명'], ['department', '부서'],
-  ['contact', '휴대폰 (없으면 전화·이메일)'], ['mobile', '휴대폰'], ['phone', '전화'], ['email', '이메일'],
+  ['mobile', '휴대폰'], ['phone', '전화'], ['email', '이메일'],
   ['address', '주소'], ['website', '홈페이지'], ['label', '라벨'], ['memo', '메모'], ['none', '표시 안 함'],
 ];
-const LIST_LINE_DEFAULTS = { listLine2: 'companyDept', listLine3: 'contact' };
-const listLineSetting = key => store.getPref(key) || LIST_LINE_DEFAULTS[key];
+const LIST_LINE_SETTINGS = [
+  ['listLine2', '둘째 줄', '표시 항목'], ['listLine2Alt', '둘째 줄', '미기재 시 대체'],
+  ['listLine3', '셋째 줄', '표시 항목'], ['listLine3Alt', '셋째 줄', '미기재 시 대체'],
+];
+const LIST_LINE_DEFAULTS = { listLine2: 'companyDept', listLine2Alt: 'none', listLine3: 'mobile', listLine3Alt: 'phone' };
+const listLineSetting = key => {
+  const v = store.getPref(key);
+  return LIST_LINES.some(([k]) => k === v) ? v : LIST_LINE_DEFAULTS[key];
+};
+const listLineLabel = (key, value) => (LIST_LINE_DEFAULTS[key] === value ? '(기본) ' : '') + LIST_LINES.find(([k]) => k === value)[1];
 
-function listLineText(c, what) {
+function listLineValue(c, what) {
   if (what === 'companyDept') return [c.company, c.department].filter(Boolean).join(' · ');
-  if (what === 'contact') return c.mobile || c.phone || c.email || '';
   if (what === 'none') return '';
   return String(c[what] || '').replace(/\s*\n\s*/g, ' ').trim(); // 메모 등 여러 줄은 한 줄로 (넘치면 …)
+}
+// 표시 항목이 비어 있으면 대체 항목 ('표시 안 함'을 고른 줄은 비워 둠)
+function listLineText(c, key) {
+  const main = listLineSetting(key);
+  if (main === 'none') return '';
+  return listLineValue(c, main) || listLineValue(c, listLineSetting(key + 'Alt'));
 }
 
 function sortControls() {
@@ -551,11 +565,9 @@ function renderListItems() {
     box.innerHTML = `<div class="empty"><p>조건에 맞는 명함이 없습니다.</p></div>`;
     return;
   }
-  const line2 = listLineSetting('listLine2');
-  const line3 = listLineSetting('listLine3');
   box.innerHTML = list.map(c => {
-    const sub = listLineText(c, line2);
-    const contact = listLineText(c, line3);
+    const sub = listLineText(c, 'listLine2');
+    const contact = listLineText(c, 'listLine3');
     return `
       <div class="card-item" data-action="open" data-id="${c.id}">
         ${avatar(c)}
@@ -1600,14 +1612,16 @@ function settingsDisplay(s) {
             <span class="theme-option"><span class="theme-swatch ${value}"></span><span>${label}<small>${desc}</small></span></span></label>`).join('')}
       </section>
       <h2 class="section-title">명함 목록 표시</h2>
-      <section class="panel">
-        <div class="panel-body">
-          <p>이름·직책 아래 두 줄에 보여 줄 항목을 고릅니다.</p>
-          ${[['listLine2', '둘째 줄'], ['listLine3', '셋째 줄']].map(([key, label]) => `
-            <label class="field"><span>${label}</span>
-              <select data-pref="${key}">${LIST_LINES.map(([v, l]) => `<option value="${v}" ${listLineSetting(key) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}
-        </div>
-      </section>`;
+      <p class="section-desc">이름·직책 아래 두 줄에 보여 줄 항목입니다. 명함에 그 항목이 없으면 '미기재 시 대체' 항목을 보여 줍니다.</p>
+      ${['listLine2', 'listLine3'].map(line => `
+        <section class="panel">
+          <p class="panel-title">${line === 'listLine2' ? '둘째 줄' : '셋째 줄'}</p>
+          ${[line, line + 'Alt'].filter(key => key === line || listLineSetting(line) !== 'none').map(key => `
+            <button class="pick-row" data-action="list-line-pick" data-key="${key}">
+              <span>${key === line ? '표시 항목' : '미기재 시 대체'}</span>
+              <span class="pick-value">${esc(listLineLabel(key, listLineSetting(key)))}</span>${icon('chevron')}
+            </button>`).join('')}
+        </section>`).join('')}`;
 }
 
 function renderSettings() {
@@ -1810,6 +1824,21 @@ document.addEventListener('click', async e => {
       // 다른 기준을 고르면 방향은 그 기준의 기본값으로
       return choice && choice !== ui.sort && setSort({ sort: choice, sortDir: SORTS[choice].dir });
     }
+    case 'list-line-pick': {
+      const key = el.dataset.key;
+      const [, line, part] = LIST_LINE_SETTINGS.find(([k]) => k === key);
+      const cur = listLineSetting(key);
+      const choice = await sheet({
+        title: `${line} ${part}`,
+        items: LIST_LINES.map(([value]) => ({ label: listLineLabel(key, value), value, on: value === cur })),
+      });
+      if (!choice || choice === cur) return;
+      store.setPref(key, choice);
+      const y = window.scrollY;
+      renderSettings();
+      window.scrollTo(0, y);
+      return;
+    }
     case 'sort-dir': return setSort({ sortDir: ui.sortDir === 'asc' ? 'desc' : 'asc' });
     case 'add-group-quick': {
       const g = await addGroupFlow();
@@ -2011,8 +2040,6 @@ document.addEventListener('change', e => {
   } else if (t.id === 'contact-photo') {
     rules.setUsePhoto(t.checked);
     toast(t.checked ? '주소록에 저장할 때 명함 사진을 넣습니다.' : '주소록에 저장할 때 사진은 넣지 않습니다.');
-  } else if (t.dataset.pref?.startsWith('listLine')) {
-    store.setPref(t.dataset.pref, t.value);
   } else if (t.name === 'theme') {
     store.setSettings({ theme: t.value });
     applyTheme();
