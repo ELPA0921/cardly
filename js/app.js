@@ -490,7 +490,6 @@ function renderListItems() {
   box.innerHTML = list.map(c => {
     const sub = [c.company, c.department].filter(Boolean).join(' · ');
     const contact = c.mobile || c.phone || c.email;
-    const tel = c.mobile || c.phone;
     return `
       <div class="card-item" data-action="open" data-id="${c.id}">
         ${avatar(c)}
@@ -499,7 +498,6 @@ function renderListItems() {
           ${sub ? `<div class="ci-sub">${esc(sub)}</div>` : ''}
           ${contact ? `<div class="ci-sub2">${esc(contact)}</div>` : ''}
         </div>
-        ${tel ? `<a class="ci-call" href="tel:${esc(digits(tel))}" aria-label="전화 걸기">${icon('phone')}</a>` : ''}
       </div>`;
   }).join('');
 }
@@ -1224,6 +1222,38 @@ async function pickGroups(id) {
   });
 }
 
+// 목록에서 명함을 길게 누르면 나오는 옵션
+async function cardMenu(id) {
+  const c = store.getCard(id);
+  if (!c) return;
+  const tel = c.mobile || c.phone;
+  const choice = await sheet({
+    title: c.name || '(이름 없음)',
+    sub: [c.company, c.title].filter(Boolean).join(' · '),
+    items: [
+      tel && { label: '전화 걸기', desc: tel, icon: 'phone', value: 'call' },
+      c.mobile && { label: '문자 보내기', icon: 'message', value: 'sms' },
+      { label: '수정', icon: 'edit', value: 'edit' },
+      { label: '그룹 지정', icon: 'tag', value: 'groups' },
+      { label: c.favorite ? '즐겨찾기 해제' : '즐겨찾기', icon: 'star', value: 'fav' },
+      { label: '공유', icon: 'share', value: 'share' },
+      isNative && { label: '휴대폰 주소록에 저장', icon: 'contact', value: 'contact' },
+      { label: '삭제', icon: 'trash', value: 'delete', danger: true },
+    ].filter(Boolean),
+  });
+  const openLink = href => Object.assign(document.createElement('a'), { href }).click();
+  switch (choice) {
+    case 'call': return openLink(`tel:${digits(tel)}`);
+    case 'sms': return openLink(`sms:${digits(c.mobile)}`);
+    case 'edit': return go(`#/edit/${id}`);
+    case 'groups': return pickGroups(id);
+    case 'fav': return store.patchCard(id, { favorite: !c.favorite });
+    case 'share': return shareCard(id);
+    case 'contact': return saveToContacts(id);
+    case 'delete': return deleteCard(id);
+  }
+}
+
 async function deleteCard(id) {
   const c = store.getCard(id);
   if (!c) return;
@@ -1522,6 +1552,31 @@ async function importJson(file) {
 }
 
 // ---------- 이벤트 ----------
+// 명함 길게 누르기(0.5초) → 옵션 메뉴. 손을 떼며 생기는 클릭은 버려서 상세 화면이 같이 열리지 않게 함
+let press = null;
+const cancelPress = () => press && clearTimeout(press.timer);
+document.addEventListener('pointerdown', e => {
+  press = null;
+  const item = e.target.closest('.card-item[data-id]');
+  if (!item || e.button > 0 || item.closest('.overlay')) return;
+  const p = (press = { x: e.clientX, y: e.clientY, fired: false });
+  p.timer = setTimeout(() => {
+    p.fired = true;
+    navigator.vibrate?.(15);
+    cardMenu(item.dataset.id);
+  }, 500);
+}, true);
+document.addEventListener('pointermove', e => press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10 && cancelPress());
+document.addEventListener('pointerup', cancelPress);
+document.addEventListener('pointercancel', cancelPress);
+document.addEventListener('contextmenu', e => e.target.closest('.card-item') && e.preventDefault());
+document.addEventListener('click', e => {
+  if (!press?.fired) return;
+  press = null;
+  e.stopPropagation();
+  e.preventDefault();
+}, true);
+
 document.addEventListener('click', async e => {
   if (e.target.closest('a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"], a[target="_blank"]')) return;
   const el = e.target.closest('[data-action]');
