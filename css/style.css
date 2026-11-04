@@ -171,7 +171,16 @@ a { color: inherit; text-decoration: none; }
 .chip.dashed { border-style: dashed; background: transparent; }
 .chip .icon { width: 15px; height: 15px; }
 .list-meta { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 8px; font-size: 13px; color: var(--text-3); }
-.list-meta select { border: 0; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 600; padding: 4px; }
+.sort-ctl { display: flex; align-items: center; gap: 6px; }
+.sort-btn, .sort-dir {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 30px; padding: 0 10px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; color: var(--text-2);
+}
+.sort-btn { padding-right: 6px; }
+.sort-dir { background: var(--surface-2); }
+.sort-btn:hover, .sort-dir:hover { background: var(--surface-2); color: var(--text); }
+.sort-btn .icon, .sort-dir .icon { width: 15px; height: 15px; }
 
 .card-list { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .card-item {
@@ -398,6 +407,9 @@ code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border
 .sheet-item:hover { background: var(--surface-2); }
 .sheet-item .icon { color: var(--text-2); }
 .sheet-item.danger, .sheet-item.danger .icon { color: var(--danger); }
+.sheet-item.on, .sheet-item.on .icon { color: var(--primary); }
+.sheet-item.on { background: var(--primary-weak); }
+.sheet-check { margin-left: auto; flex: none; }
 .sheet-item small { display: block; font-weight: 500; color: var(--text-3); font-size: 12.5px; }
 .sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 0 4px; }
 .sheet-grid .sheet-item { padding: 12px; }

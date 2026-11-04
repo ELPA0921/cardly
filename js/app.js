@@ -19,8 +19,12 @@ const $toast = document.getElementById('toast-root');
 
 const MAX_PHOTOS = 2;
 const PHONE_KEYS = ['mobile', 'phone', 'fax'];
+// 정렬 종류와 기본 방향 (최근 등록순은 최신이 위, 이름·회사순은 가나다순)
+const SORTS = { recent: { label: '최근 등록순', dir: 'desc' }, name: { label: '이름순', dir: 'asc' }, company: { label: '회사순', dir: 'asc' } };
 const ui = { filter: 'all', query: '', sort: 'recent', ...store.getUiPrefs() };
 ui.query = '';
+if (!SORTS[ui.sort]) ui.sort = 'recent';
+if (!['asc', 'desc'].includes(ui.sortDir)) ui.sortDir = SORTS[ui.sort].dir;
 let draft = null; // 편집 중인 명함
 let capture = null; // 사진 선택 후 할 일 { mode: 'new' | 'add' | 'replace', mine }
 let imageUrls = []; // 해제할 objectURL
@@ -85,8 +89,9 @@ function sheet({ title = '', sub = '', items, grid = false }) {
         ${sub ? `<p class="sheet-sub">${esc(sub)}</p>` : ''}
         <div class="${grid ? 'sheet-grid' : ''}">
           ${items.map((it, i) => `
-            <button class="sheet-item ${it.danger ? 'danger' : ''}" data-i="${i}">
+            <button class="sheet-item ${it.danger ? 'danger' : ''} ${it.on ? 'on' : ''}" data-i="${i}">
               ${it.icon ? icon(it.icon) : ''}<span>${esc(it.label)}${it.desc ? `<small>${esc(it.desc)}</small>` : ''}</span>
+              ${it.on ? icon('check', 'sheet-check') : ''}
             </button>`).join('')}
         </div>
       </div>`);
@@ -392,10 +397,12 @@ function filteredCards() {
       return qDigits.length >= 3 && [c.mobile, c.phone, c.fax].some(n => digits(n).includes(qDigits));
     });
   }
-  const byText = k => (a, b) => (a[k] || '￿').localeCompare(b[k] || '￿', 'ko');
+  const dir = ui.sortDir === 'desc' ? -1 : 1;
+  // 빈 값(이름·회사 없음)은 방향과 상관없이 맨 뒤
+  const byText = k => (a, b) => !a[k] - !b[k] || dir * (a[k] || '').localeCompare(b[k] || '', 'ko');
   if (ui.sort === 'name') list.sort(byText('name'));
   else if (ui.sort === 'company') list.sort((a, b) => byText('company')(a, b) || byText('name')(a, b));
-  else list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  else list.sort((a, b) => dir * ((a.createdAt || 0) - (b.createdAt || 0)));
   return list;
 }
 
@@ -446,16 +453,27 @@ function renderList() {
       </div>
       <div class="list-meta">
         <span id="list-count"></span>
-        <select id="sort" aria-label="정렬">
-          <option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 등록순</option>
-          <option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option>
-          <option value="company" ${ui.sort === 'company' ? 'selected' : ''}>회사순</option>
-        </select>
+        <div class="sort-ctl" id="sort-ctl">${sortControls()}</div>
       </div>
     </div>
     <div id="my-card-slot" class="my-card-slot"></div>
     <main class="card-list" id="card-list"></main>
     ${isNative ? `<button class="fab" data-action="add">${icon('camera')}<span>명함 추가</span></button>` : ''}`;
+  renderListItems();
+}
+
+function sortControls() {
+  const asc = ui.sortDir === 'asc';
+  return `
+    <button class="sort-btn" data-action="sort-menu" aria-label="정렬 기준">${esc(SORTS[ui.sort].label)}${icon('chevronDown')}</button>
+    <button class="sort-dir" data-action="sort-dir" aria-label="정렬 방향 바꾸기">${icon(asc ? 'sortAsc' : 'sortDesc')}${asc ? '오름차순' : '내림차순'}</button>`;
+}
+
+function setSort(patch) {
+  Object.assign(ui, patch);
+  store.setUiPrefs({ sort: ui.sort, sortDir: ui.sortDir });
+  const ctl = document.getElementById('sort-ctl');
+  if (ctl) ctl.innerHTML = sortControls();
   renderListItems();
 }
 
@@ -1599,6 +1617,15 @@ document.addEventListener('click', async e => {
       store.setUiPrefs({ filter: id });
       document.querySelectorAll('[data-action="filter"]').forEach(b => b.classList.toggle('on', b.dataset.id === id));
       return renderListItems();
+    case 'sort-menu': {
+      const choice = await sheet({
+        title: '정렬',
+        items: Object.entries(SORTS).map(([value, s]) => ({ label: s.label, value, on: value === ui.sort })),
+      });
+      // 다른 기준을 고르면 방향은 그 기준의 기본값으로
+      return choice && choice !== ui.sort && setSort({ sort: choice, sortDir: SORTS[choice].dir });
+    }
+    case 'sort-dir': return setSort({ sortDir: ui.sortDir === 'asc' ? 'desc' : 'asc' });
     case 'add-group-quick': {
       const g = await addGroupFlow();
       if (g) {
@@ -1782,11 +1809,7 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.id === 'sort') {
-    ui.sort = t.value;
-    store.setUiPrefs({ sort: t.value });
-    renderListItems();
-  } else if (t.id === 'strip-corp') {
+  if (t.id === 'strip-corp') {
     rules.setStripCorp(t.checked);
     const y = window.scrollY;
     renderSettings();
