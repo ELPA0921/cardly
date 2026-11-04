@@ -271,16 +271,15 @@ function onHashChange() {
   else if (visited.at(-2) === h) visited.pop();
   else visited.push(h);
   replacing = false;
+  const prev = shown;
   render();
-  const depth = viewDepth();
-  slideIn(Math.sign(depth - shownDepth));
-  shownDepth = depth;
+  // 같은 화면 안에서 주소만 바뀐 경우(설정 탭 전환 등)는 움직이지 않음 — 화면 전체가 깜빡여 보임
+  if (shown.view !== prev.view) slideIn(Math.sign(shown.depth - prev.depth));
 }
 
 // 화면 전환: 안쪽 화면으로 가면 오른쪽에서, 바깥으로 나오면 왼쪽에서 살짝 밀려 들어옴.
 // 고정된 상단바·버튼은 움직이지 않고 흐려졌다 나타나기만 (transform 은 opacity 와 함께 GPU 로 처리돼 가벼움)
-const viewDepth = () => (needsLogin() ? 0 : { list: 0, edit: 2, new: 2 }[route().view] ?? 1);
-let shownDepth = 0;
+let shown = { view: null, depth: 0 }; // 지금 보이는 화면 (render 가 갱신)
 function slideIn(dir) {
   if (reduceMotion.matches || !$app.animate) return;
   for (const el of $app.children) {
@@ -304,6 +303,8 @@ function render() {
   $overlay.innerHTML = '';
   const { view, id } = route();
   window.scrollTo(0, 0);
+  const screen = needsLogin() ? 'login' : view;
+  shown = { view: screen, depth: { login: 0, list: 0, edit: 2, new: 2 }[screen] ?? 1 };
   if (needsLogin()) return renderLogin();
   if (view === 'card') return renderDetail(id);
   if (view === 'edit') return renderEditor(id);
