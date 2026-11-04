@@ -996,10 +996,107 @@ async function cancelEdit() {
 
 // ---------- 상세 ----------
 let detailView = { id: null, index: 0 };
+let detailNav = null; // { index, total, prev, next } — 목록에서 보던 순서 기준
+let pendingSlide = 0; // 다음/이전 명함으로 넘어온 방향 (1: 다음, -1: 이전)
+
+// 목록 순서(검색·그룹·정렬 그대로)에서 앞뒤 명함. 목록에 없는 명함이면 전체 목록 순서로. 내 명함은 넘기기 없음
+function detailNeighbors(card) {
+  if (!card || card.isMine) return null;
+  let list = filteredCards();
+  if (!list.some(x => x.id === card.id)) {
+    const saved = { filter: ui.filter, query: ui.query };
+    Object.assign(ui, { filter: 'all', query: '' });
+    list = filteredCards();
+    Object.assign(ui, saved);
+  }
+  const i = list.findIndex(x => x.id === card.id);
+  if (i < 0 || list.length < 2) return null;
+  return { index: i, total: list.length, prev: list[i - 1]?.id || null, next: list[i + 1]?.id || null };
+}
+
+// dir 1: 다음 명함, -1: 이전 명함. 지금 화면을 반대쪽으로 밀어내고 새 명함이 들어오게 함
+function moveDetail(dir, fromX = 0) {
+  const target = dir > 0 ? detailNav?.next : detailNav?.prev;
+  const main = $app.querySelector('main.detail');
+  if (!target) {
+    if (main && !reduceMotion.matches) main.animate(
+      [{ transform: `translateX(${fromX}px)` }, { transform: `translateX(${-dir * 18}px)` }, { transform: 'none' }],
+      { duration: 280, easing: 'ease-out' });
+    return;
+  }
+  const navigate = () => {
+    pendingSlide = dir;
+    go(`#/card/${target}`, { replace: true });
+  };
+  if (!main || reduceMotion.matches) return navigate();
+  main.animate(
+    [{ transform: `translateX(${fromX}px)`, opacity: main.style.opacity || 1 }, { transform: `translateX(${-dir * 70}%)`, opacity: 0 }],
+    { duration: 150, easing: 'ease-in', fill: 'forwards' }).onfinish = navigate;
+}
+
+// 손가락으로 좌우로 밀기: 따라 움직이다가 충분히 밀면 다음/이전 명함으로, 아니면 제자리로
+function attachSwipe(main) {
+  let sx = 0, sy = 0, dx = 0, horizontal = null, tracking = false;
+  const reset = () => {
+    main.style.transition = 'transform .22s ease, opacity .22s ease';
+    main.style.transform = '';
+    main.style.opacity = '';
+  };
+  main.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return (tracking = false);
+    sx = e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+    dx = 0;
+    horizontal = null;
+    tracking = true;
+    main.style.transition = 'none';
+  }, { passive: true });
+  main.addEventListener('touchmove', e => {
+    if (!tracking) return;
+    const x = e.touches[0].clientX - sx, y = e.touches[0].clientY - sy;
+    if (horizontal === null && Math.hypot(x, y) > 10) horizontal = Math.abs(x) > Math.abs(y) * 1.2;
+    if (!horizontal) return;
+    dx = x;
+    const blocked = (dx < 0 && !detailNav?.next) || (dx > 0 && !detailNav?.prev);
+    const shift = blocked ? dx * 0.25 : dx; // 끝이면 고무줄처럼 조금만
+    main.style.transform = `translateX(${shift}px)`;
+    main.style.opacity = String(1 - Math.min(Math.abs(shift) / 700, 0.3));
+  }, { passive: true });
+  const end = () => {
+    if (!tracking) return;
+    tracking = false;
+    if (!horizontal) return;
+    const dir = dx < 0 ? 1 : -1;
+    const target = dir > 0 ? detailNav?.next : detailNav?.prev;
+    if (Math.abs(dx) > 70 && target) moveDetail(dir, dx);
+    else reset();
+  };
+  main.addEventListener('touchend', end);
+  main.addEventListener('touchcancel', end);
+}
+
+// 처음 한 번만: 알림 창 없이, 화면이 좌우로 살짝 흔들리고 아래에 안내 문구가 잠깐 나타남
+function maybeShowSwipeHint(main) {
+  if (!detailNav || store.getUiPrefs().swipeHintShown) return;
+  store.setUiPrefs({ swipeHintShown: true });
+  const hint = document.createElement('div');
+  hint.className = 'swipe-hint';
+  hint.innerHTML = `<span class="swipe-arrow left">${icon('back')}</span><span>좌우로 밀어서 다른 명함 보기</span><span class="swipe-arrow right">${icon('chevron')}</span>`;
+  $app.appendChild(hint);
+  if (!reduceMotion.matches) {
+    const peek = detailNav.next ? -26 : 26; // 넘어갈 수 있는 쪽으로 먼저 살짝
+    main.animate(
+      [{ transform: 'none' }, { transform: `translateX(${peek}px)` }, { transform: 'none' }, { transform: `translateX(${peek / 2}px)` }, { transform: 'none' }],
+      { duration: 1300, delay: 450, easing: 'ease-in-out' });
+  }
+  setTimeout(() => hint.classList.add('hide'), 3400);
+  setTimeout(() => hint.remove(), 3900);
+}
 
 function renderDetail(id) {
   const c = store.getCard(id);
   if (!c) return go('#/', { replace: true });
+  detailNav = detailNeighbors(c);
   const photos = store.photosOf(c);
   const main = store.mainPhotoIndex(c);
   if (detailView.id !== id || detailView.index >= photos.length) detailView = { id, index: main };
@@ -1014,7 +1111,12 @@ function renderDetail(id) {
   $app.innerHTML = `
     <header class="topbar">
       <button class="icon-btn" data-action="back" aria-label="뒤로">${icon('back')}</button>
-      <h1>${c.isMine ? '내 명함' : ''}</h1>
+      ${detailNav ? `
+        <div class="pager"><div class="pager-pill">
+          <button class="icon-btn" data-action="detail-prev" ${detailNav.prev ? '' : 'disabled'} aria-label="이전 명함">${icon('chevronLeft')}</button>
+          <span class="pager-count">${detailNav.index + 1} / ${detailNav.total}</span>
+          <button class="icon-btn" data-action="detail-next" ${detailNav.next ? '' : 'disabled'} aria-label="다음 명함">${icon('chevron')}</button>
+        </div></div>` : `<h1>${c.isMine ? '내 명함' : ''}</h1>`}
       ${c.isMine ? '' : `<button class="icon-btn ${c.favorite ? 'active' : ''}" data-action="toggle-fav" data-id="${c.id}" aria-label="즐겨찾기">${icon('star')}</button>`}
       <button class="icon-btn" data-action="edit" data-id="${c.id}" aria-label="편집">${icon('edit')}</button>
     </header>
@@ -1066,6 +1168,17 @@ function renderDetail(id) {
     </main>`;
 
   if (photos.length) showDetailPhoto(c);
+  const detailEl = $app.querySelector('main.detail');
+  if (detailNav) {
+    attachSwipe(detailEl);
+    maybeShowSwipeHint(detailEl);
+  }
+  // 다음/이전 명함으로 넘어온 경우: 들어오는 쪽에서 밀려 들어오는 모습
+  if (pendingSlide && !reduceMotion.matches) {
+    detailEl.animate([{ transform: `translateX(${pendingSlide * 60}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }],
+      { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
+  pendingSlide = 0;
 }
 
 function showDetailPhoto(card) {
@@ -1739,6 +1852,8 @@ document.addEventListener('click', async e => {
       const c = store.getCard(id);
       return c && store.patchCard(id, { favorite: !c.favorite });
     }
+    case 'detail-prev': return moveDetail(-1);
+    case 'detail-next': return moveDetail(1);
     case 'detail-photo-tab': {
       detailView.index = +el.dataset.i;
       return renderDetail(route().id);
@@ -1825,6 +1940,13 @@ document.addEventListener('click', async e => {
       }
       return;
   }
+});
+
+// PC(웹)에서는 키보드 ← → 로도 이전/다음 명함
+document.addEventListener('keydown', e => {
+  if (route().view !== 'card' || $overlay.children.length || e.target.closest?.('input, textarea, select')) return;
+  if (e.key === 'ArrowLeft') moveDetail(-1);
+  else if (e.key === 'ArrowRight') moveDetail(1);
 });
 
 document.addEventListener('input', e => {
