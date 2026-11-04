@@ -301,7 +301,7 @@ function renderLogin() {
       <p class="login-sub">명함을 찍으면 자동으로 정리되는<br>나만의 명함첩</p>
       <button class="btn google-btn" data-action="login">${GOOGLE_G}Google 계정으로 로그인</button>
       <p class="login-error" id="login-error"></p>
-      <p class="small-note">명함과 사진은 로그인한 Google 계정의 Drive<br>「${esc(store.getSettings().driveFolderName)}」 폴더에 저장되어, 휴대폰을 바꿔도 그대로 불러옵니다.</p>
+      <p class="small-note">명함과 사진은 로그인한 Google 계정의<br>Drive 「${esc(store.getSettings().driveFolderName)}」 폴더에 저장되어,<br>휴대폰을 바꿔도 그대로 불러옵니다.</p>
     </main>`;
 }
 

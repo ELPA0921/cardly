@@ -212,7 +212,7 @@ mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: i
 .empty { text-align: center; padding: 56px 24px; color: var(--text-2); }
 .empty > .icon { width: 56px; height: 56px; color: var(--text-3); stroke-width: 1.5; }
 .empty h2 { font-size: 18px; color: var(--text); margin: 16px 0 6px; }
-.empty p { margin: 0 0 20px; }
+.empty p { margin: 0 0 20px; word-break: keep-all; text-wrap: balance; }
 
 .fab {
   position: fixed; z-index: 30;
@@ -510,7 +510,7 @@ code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border
 .login .wordmark { height: 44px; margin: 26px 0 10px; }
 
 .login-sub { color: var(--text-2); margin: 0 0 36px; font-size: 16px; }
-.login .small-note { max-width: 320px; line-height: 1.6; }
+.login .small-note { max-width: 320px; line-height: 1.6; word-break: keep-all; text-wrap: balance; }
 .login-error { color: var(--danger); font-size: 14px; min-height: 1.5em; margin: 12px 0 0; max-width: 320px; }
 .google-btn {
   width: 100%; max-width: 320px; min-height: 52px; font-size: 16px;
