@@ -270,8 +270,10 @@ mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: i
 .detail { padding: 0 16px; touch-action: pan-y; will-change: transform; }
 
 /* 상세 상단: ‹ 3 / 12 › */
-.pager { flex: 1; display: flex; justify-content: center; min-width: 0; }
+.pager { flex: 1; min-width: 0; }
+/* 왼쪽(뒤로) 버튼 1개, 오른쪽 버튼 2개라 흐름대로 두면 왼쪽으로 치우침 → 상단바 정가운데에 고정 */
 .pager-pill {
+  position: absolute; left: 50%; top: calc(50% + env(safe-area-inset-top) / 2); transform: translate(-50%, -50%);
   display: inline-flex; align-items: center; gap: 0; padding: 2px;
   border-radius: 999px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow);
 }

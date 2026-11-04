@@ -19,8 +19,8 @@ const $toast = document.getElementById('toast-root');
 
 const MAX_PHOTOS = 2;
 const PHONE_KEYS = ['mobile', 'phone', 'fax'];
-// 정렬 종류와 기본 방향 (최근 등록순은 최신이 위, 이름·회사순은 가나다순)
-const SORTS = { recent: { label: '최근 등록순', dir: 'desc' }, name: { label: '이름순', dir: 'asc' }, company: { label: '회사순', dir: 'asc' } };
+// 정렬 종류와 기본 방향 (등록순은 최신이 위, 이름·회사순은 가나다순)
+const SORTS = { recent: { label: '등록순', dir: 'desc' }, name: { label: '이름순', dir: 'asc' }, company: { label: '회사순', dir: 'asc' } };
 const ui = { filter: 'all', query: '', sort: 'recent', ...store.getUiPrefs() };
 ui.query = '';
 if (!SORTS[ui.sort]) ui.sort = 'recent';
@@ -422,7 +422,7 @@ function filteredCards() {
     const qCompact = q.replace(/\s/g, '');
     list = list.filter(c => {
       if (isCho) return [c.name, c.company].some(v => chosung(v).replace(/\s/g, '').includes(qCompact));
-      const hay = [c.name, c.company, c.department, c.title, c.email, c.address, c.memo, c.website].join(' ').toLowerCase();
+      const hay = [c.name, c.company, c.department, c.title, c.email, c.address, c.label, c.memo, c.website].join(' ').toLowerCase();
       if (hay.includes(q) || hay.replace(/\s/g, '').includes(qCompact)) return true;
       return qDigits.length >= 3 && [c.mobile, c.phone, c.fax].some(n => digits(n).includes(qDigits));
     });
@@ -492,6 +492,22 @@ function renderList() {
   renderListItems();
 }
 
+// 명함 목록 둘째·셋째 줄에 보여 줄 항목 (설정 > 화면, 내 모든 기기에 공통)
+const LIST_LINES = [
+  ['companyDept', '회사명 · 부서'], ['company', '회사명'], ['department', '부서'],
+  ['contact', '휴대폰 (없으면 전화·이메일)'], ['mobile', '휴대폰'], ['phone', '전화'], ['email', '이메일'],
+  ['address', '주소'], ['website', '홈페이지'], ['label', '라벨'], ['memo', '메모'], ['none', '표시 안 함'],
+];
+const LIST_LINE_DEFAULTS = { listLine2: 'companyDept', listLine3: 'contact' };
+const listLineSetting = key => store.getPref(key) || LIST_LINE_DEFAULTS[key];
+
+function listLineText(c, what) {
+  if (what === 'companyDept') return [c.company, c.department].filter(Boolean).join(' · ');
+  if (what === 'contact') return c.mobile || c.phone || c.email || '';
+  if (what === 'none') return '';
+  return String(c[what] || '').replace(/\s*\n\s*/g, ' ').trim(); // 메모 등 여러 줄은 한 줄로 (넘치면 …)
+}
+
 function sortControls() {
   const asc = ui.sortDir === 'asc';
   return `
@@ -535,9 +551,11 @@ function renderListItems() {
     box.innerHTML = `<div class="empty"><p>조건에 맞는 명함이 없습니다.</p></div>`;
     return;
   }
+  const line2 = listLineSetting('listLine2');
+  const line3 = listLineSetting('listLine3');
   box.innerHTML = list.map(c => {
-    const sub = [c.company, c.department].filter(Boolean).join(' · ');
-    const contact = c.mobile || c.phone || c.email;
+    const sub = listLineText(c, line2);
+    const contact = listLineText(c, line3);
     return `
       <div class="card-item" data-action="open" data-id="${c.id}">
         ${avatar(c)}
@@ -715,6 +733,7 @@ function renderEditor(id) {
             <div class="chips wrap" id="draft-groups"></div>
           </div>
           <label class="check-row"><input type="checkbox" id="draft-fav" ${d.favorite ? 'checked' : ''}> ★ 즐겨찾기</label>`}
+        ${field(byKey('label'))}
         ${field(byKey('memo'))}
       </form>
     </main>
@@ -847,9 +866,8 @@ async function runOcr(photoId) {
     const parsed = parseCard(res);
     let filled = 0;
     for (const k of FIELD_KEYS) {
-      if (!parsed[k] || d.touched.has(k)) continue;
+      if (k === 'memo' || !parsed[k] || d.touched.has(k)) continue; // 메모는 자동으로 채우지 않음
       const cur = d.fields[k];
-      if (k === 'memo' && cur && d.ocrFilled.memo !== photoId) continue;
       if (cur && d.ocrFilled[k] !== photoId && !d.prefilled?.has(k)) continue;
       d.fields[k] = parsed[k];
       d.ocrFilled[k] = photoId;
@@ -1164,6 +1182,7 @@ function renderDetail(id) {
           <button class="chip dashed" data-action="pick-groups" data-id="${c.id}">${icon('edit')}${groups.length ? '변경' : '그룹 지정'}</button>
         </div>
       </section>`}
+      ${c.label ? `<section class="panel"><p class="panel-title">라벨</p><p class="memo">${esc(c.label)}</p></section>` : ''}
       ${c.memo ? `<section class="panel"><p class="panel-title">메모</p><p class="memo">${esc(c.memo)}</p></section>` : ''}
       <section class="detail-actions">
         ${isNative ? `<button class="btn primary" data-action="save-contact" data-id="${c.id}" style="grid-column:1/-1">${icon('contact')}휴대폰 주소록에 저장</button>` : ''}
@@ -1579,6 +1598,15 @@ function settingsDisplay(s) {
         ${THEMES.map(([value, label, desc]) => `
           <label class="radio-row"><input type="radio" name="theme" value="${value}" ${current === value ? 'checked' : ''}>
             <span class="theme-option"><span class="theme-swatch ${value}"></span><span>${label}<small>${desc}</small></span></span></label>`).join('')}
+      </section>
+      <h2 class="section-title">명함 목록 표시</h2>
+      <section class="panel">
+        <div class="panel-body">
+          <p>이름·직책 아래 두 줄에 보여 줄 항목을 고릅니다.</p>
+          ${[['listLine2', '둘째 줄'], ['listLine3', '셋째 줄']].map(([key, label]) => `
+            <label class="field"><span>${label}</span>
+              <select data-pref="${key}">${LIST_LINES.map(([v, l]) => `<option value="${v}" ${listLineSetting(key) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}
+        </div>
       </section>`;
 }
 
@@ -1983,6 +2011,8 @@ document.addEventListener('change', e => {
   } else if (t.id === 'contact-photo') {
     rules.setUsePhoto(t.checked);
     toast(t.checked ? '주소록에 저장할 때 명함 사진을 넣습니다.' : '주소록에 저장할 때 사진은 넣지 않습니다.');
+  } else if (t.dataset.pref?.startsWith('listLine')) {
+    store.setPref(t.dataset.pref, t.value);
   } else if (t.name === 'theme') {
     store.setSettings({ theme: t.value });
     applyTheme();
