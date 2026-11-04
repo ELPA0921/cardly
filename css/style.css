@@ -205,8 +205,9 @@ a { color: inherit; text-decoration: none; }
 .avatar.lg { width: 72px; height: 72px; border-radius: 22px; font-size: 28px; }
 .ci-body { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
-.ci-top strong { font-size: 16px; font-weight: 700; }
-.ci-title { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci-top strong { font-size: 16px; font-weight: 700; flex: none; white-space: nowrap; }
+/* 직책이 길면 이름은 그대로 두고 직책만 … 로 줄임 */
+.ci-title { min-width: 0; font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci-star { color: var(--star); width: 14px; height: 14px; fill: var(--star); align-self: center; }
 .ci-sub, .ci-sub2 { font-size: 13.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci-sub2 { color: var(--text-3); font-size: 13px; }
