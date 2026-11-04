@@ -28,6 +28,7 @@ if (!['asc', 'desc'].includes(ui.sortDir)) ui.sortDir = SORTS[ui.sort].dir;
 let draft = null; // 편집 중인 명함
 let capture = null; // 사진 선택 후 할 일 { mode: 'new' | 'add' | 'replace', mine }
 let imageUrls = []; // 해제할 objectURL
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)'); // 휴대폰 '애니메이션 줄이기' 설정
 
 // ---------- 유틸 ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -57,7 +58,10 @@ function toast(message, type = '') {
   el.className = `toast ${type}`;
   el.textContent = message;
   $toast.appendChild(el);
-  setTimeout(() => el.remove(), type === 'error' ? 4500 : 2500);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 200);
+  }, type === 'error' ? 4500 : 2500);
 }
 
 function cardColor(card) {
@@ -81,6 +85,13 @@ function openOverlay(html, { center = false, cls = '' } = {}) {
   return el;
 }
 
+// 닫을 때도 살짝 내려가며 사라지게 (애니메이션 끝나면 제거)
+function closeOverlay(el) {
+  if (reduceMotion.matches) return el.remove();
+  el.classList.add('closing');
+  setTimeout(() => el.remove(), 160);
+}
+
 function sheet({ title = '', sub = '', items, grid = false }) {
   return new Promise(resolve => {
     const el = openOverlay(`
@@ -98,7 +109,7 @@ function sheet({ title = '', sub = '', items, grid = false }) {
     el.addEventListener('click', e => {
       const btn = e.target.closest('[data-i]');
       if (!btn && e.target !== el) return;
-      el.remove();
+      closeOverlay(el);
       resolve(btn ? items[+btn.dataset.i].value : null);
     });
   });
@@ -117,7 +128,7 @@ function dialog({ title, message = '', buttons, input = null }) {
       </div>`, { center: true });
     const $input = el.querySelector('#dialog-input');
     const finish = value => {
-      el.remove();
+      closeOverlay(el);
       resolve(input ? (value === null ? null : { value, text: $input.value.trim() }) : value);
     };
     if ($input) {
@@ -142,7 +153,7 @@ async function promptDialog(title, value = '', placeholder = '') {
 
 function viewImage(url) {
   const el = openOverlay(`<img src="${url}" alt="명함 사진">`, { center: true, cls: 'viewer' });
-  el.addEventListener('click', () => el.remove());
+  el.addEventListener('click', () => closeOverlay(el));
 }
 
 // 명함 테두리 맞추기: 자동으로 찾은 네 모서리를 보여 주고, 끌어서 조정한 뒤 반듯하게 펴서 잘라냅니다.
@@ -261,6 +272,24 @@ function onHashChange() {
   else visited.push(h);
   replacing = false;
   render();
+  const depth = viewDepth();
+  slideIn(Math.sign(depth - shownDepth));
+  shownDepth = depth;
+}
+
+// 화면 전환: 안쪽 화면으로 가면 오른쪽에서, 바깥으로 나오면 왼쪽에서 살짝 밀려 들어옴.
+// 고정된 상단바·버튼은 움직이지 않고 흐려졌다 나타나기만 (transform 은 opacity 와 함께 GPU 로 처리돼 가벼움)
+const viewDepth = () => (needsLogin() ? 0 : { list: 0, edit: 2, new: 2 }[route().view] ?? 1);
+let shownDepth = 0;
+function slideIn(dir) {
+  if (reduceMotion.matches || !$app.animate) return;
+  for (const el of $app.children) {
+    const fixed = el.matches('.topbar, .fab, .editor-footer');
+    el.animate(fixed || !dir
+      ? [{ opacity: fixed ? 0.4 : 0 }, { opacity: 1 }]
+      : [{ opacity: 0, transform: `translateX(${dir * 14}px)` }, { opacity: 1, transform: 'none' }],
+      { duration: 200, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
 }
 
 function back() {
@@ -1234,7 +1263,7 @@ async function pickGroups(id) {
         draw();
       }
     } else if (act === 'done' || e.target === el) {
-      el.remove();
+      closeOverlay(el);
       store.patchCard(id, { groupIds: [...selected] });
     }
   });
@@ -1571,15 +1600,22 @@ async function importJson(file) {
 
 // ---------- 이벤트 ----------
 // 명함 길게 누르기(0.5초) → 옵션 메뉴. 손을 떼며 생기는 클릭은 버려서 상세 화면이 같이 열리지 않게 함
+// 누르고 있는 동안 명함이 천천히 작아져서 '길게 누르는 중'임을 보여 줌
 let press = null;
-const cancelPress = () => press && clearTimeout(press.timer);
+const cancelPress = () => {
+  if (!press) return;
+  clearTimeout(press.timer);
+  press.item.classList.remove('pressing');
+};
 document.addEventListener('pointerdown', e => {
   press = null;
   const item = e.target.closest('.card-item[data-id]');
   if (!item || e.button > 0 || item.closest('.overlay')) return;
-  const p = (press = { x: e.clientX, y: e.clientY, fired: false });
+  const p = (press = { item, x: e.clientX, y: e.clientY, fired: false });
+  item.classList.add('pressing');
   p.timer = setTimeout(() => {
     p.fired = true;
+    item.classList.remove('pressing');
     navigator.vibrate?.(15);
     cardMenu(item.dataset.id);
   }, 500);
@@ -1878,7 +1914,7 @@ if (bootMeta.email && (bootMeta.authVersion ?? 1) !== AUTH_VERSION) {
 // ---------- 안드로이드 뒤로가기 ----------
 // 열린 창 닫기 → 편집 중이면 취소 확인 → 이전 화면 → 첫 화면에서는 종료 확인
 async function onBackButton() {
-  const top = $overlay.lastElementChild;
+  const top = [...$overlay.children].filter(o => !o.classList.contains('closing')).at(-1);
   if (top) {
     const cancel = top.querySelector('[data-c="cancel"]');
     if (cancel) cancel.click();

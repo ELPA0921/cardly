@@ -190,8 +190,11 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer;
   /* 길게 누르면 옵션 메뉴: 글자 선택·시스템 메뉴가 뜨지 않게 */
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform .15s ease-out;
 }
 .card-item:active { transform: scale(.995); }
+/* 길게 누르는 동안(0.5초) 천천히 눌려 들어감 → 메뉴가 뜨면 원래대로 */
+.card-item.pressing { transform: scale(.97); transition: transform .45s .05s ease-out; }
 .avatar {
   width: 44px; height: 44px; border-radius: 14px; flex: none;
   display: flex; align-items: center; justify-content: center;
@@ -390,21 +393,30 @@ code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border
   animation: fade .15s ease-out;
 }
 .overlay.center { align-items: center; padding: 16px; }
+.overlay.closing { animation: fadeOut .15s ease-in forwards; pointer-events: none; }
+.overlay.closing > .sheet { animation: sheetOut .15s ease-in forwards; }
+.overlay.closing > .dialog { animation: popOut .15s ease-in forwards; }
 @keyframes fade { from { opacity: 0; } }
+@keyframes fadeOut { to { opacity: 0; } }
 @keyframes up { from { transform: translateY(24px); opacity: 0; } }
+@keyframes sheetIn { from { transform: translateY(100%); } }
+@keyframes sheetOut { to { transform: translateY(60%); } }
+@keyframes popIn { from { transform: scale(.94); opacity: 0; } }
+@keyframes popOut { to { transform: scale(.97); opacity: 0; } }
 .sheet {
   width: 100%; max-width: 520px; max-height: 85vh; overflow: auto;
   background: var(--surface); border-radius: 20px 20px 0 0;
   padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
-  box-shadow: var(--shadow-lg); animation: up .2s ease-out;
+  box-shadow: var(--shadow-lg); animation: sheetIn .24s cubic-bezier(.2, .8, .2, 1);
 }
 .sheet-title { font-size: 13px; font-weight: 700; color: var(--text-3); padding: 12px 14px 6px; margin: 0; }
 .sheet-sub { font-size: 14px; padding: 0 14px 8px; margin: 0; color: var(--text-2); word-break: break-all; white-space: pre-line; }
 .sheet-item {
   width: 100%; display: flex; align-items: center; gap: 12px;
   padding: 14px; border-radius: 12px; text-align: left; font-weight: 600;
+  transition: background-color .12s;
 }
-.sheet-item:hover { background: var(--surface-2); }
+.sheet-item:hover, .sheet-item:active { background: var(--surface-2); }
 .sheet-item .icon { color: var(--text-2); }
 .sheet-item.danger, .sheet-item.danger .icon { color: var(--danger); }
 .sheet-item.on, .sheet-item.on .icon { color: var(--primary); }
@@ -416,7 +428,7 @@ code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border
 .dialog {
   width: 100%; max-width: 400px; background: var(--surface);
   border-radius: 20px; padding: 22px 20px 16px; box-shadow: var(--shadow-lg);
-  animation: up .2s ease-out;
+  animation: popIn .18s cubic-bezier(.2, .8, .2, 1);
 }
 .dialog h2 { font-size: 18px; margin: 0 0 8px; }
 .dialog p { margin: 0 0 16px; color: var(--text-2); white-space: pre-line; }
@@ -564,3 +576,10 @@ code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border
   box-shadow: var(--shadow-lg); animation: up .2s ease-out;
 }
 .toast.error { background: var(--danger); color: #fff; }
+.toast.out { animation: fadeOut .2s ease-in forwards; }
+
+/* 휴대폰 '애니메이션 줄이기' 설정을 켠 경우 */
+@media (prefers-reduced-motion: reduce) {
+  .overlay, .sheet, .dialog, .toast { animation: none !important; }
+  .card-item, .card-item.pressing { transition: none; transform: none; }
+}
